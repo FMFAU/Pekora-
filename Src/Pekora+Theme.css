@@ -20,6 +20,17 @@
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
     --radius: 6px;
     --radius-lg: 10px;
+
+    /* Override site's brown theme colors */
+    --primary-color: #5865f2 !important;
+    --primary-color-2: #4752c4 !important;
+    --primary-color-hover: #4752c4 !important;
+    --secondary-color: #161b22 !important;
+    --white-color: #161b22 !important;
+    --white-color-hover: #21262d !important;
+    --text-color-primary: #e6edf3 !important;
+    --text-color-secondary: #8b949e !important;
+    --text-color-tertiary: #8b949e !important;
 }
 
 /* Global Reset */
@@ -96,7 +107,8 @@ body, html {
 }
 
 /* Currency */
-.currencySpan-0-2-133 {
+.currencySpan-0-2-133,
+.currencySpan-0-2-97 {
     color: var(--text-primary) !important;
     font-weight: 500 !important;
 }
@@ -526,6 +538,7 @@ h1, h2, h3 {
 
 .assetContainerCard-0-2-249 {
     background: var(--dark-card) !important;
+    background-color: var(--dark-card) !important;
     border-radius: var(--radius-lg) !important;
 }
 
@@ -662,6 +675,110 @@ h1, h2, h3 {
 /* Report abuse link */
 .link-0-2-246 {
     color: var(--text-muted) !important;
+}
+
+/* Sidebar */
+.container-0-2-42 {
+    background: var(--dark-lighter) !important;
+    border-right: 1px solid var(--border) !important;
+}
+
+.card-0-2-43 {
+    background: var(--dark-lighter) !important;
+    border: none !important;
+    border-radius: 0 !important;
+}
+
+.card-d0-0-2-50 {
+    background: var(--dark-lighter) !important;
+}
+
+.divider-0-2-44,
+.divider-d1-0-2-51 {
+    background: var(--border) !important;
+    border-color: var(--border) !important;
+}
+
+.usernameContainer-0-2-46 {
+    color: var(--text-primary) !important;
+}
+
+.username-0-2-47,
+.username-d2-0-2-52 {
+    color: var(--text-primary) !important;
+    text-decoration: none !important;
+}
+
+.name-0-2-55 {
+    color: var(--text-secondary) !important;
+}
+
+.link-0-2-57 {
+    text-decoration: none !important;
+}
+
+.wrapper-0-2-56 {
+    transition: background 0.15s ease !important;
+    border-radius: var(--radius) !important;
+}
+
+.wrapper-0-2-56:hover .name-0-2-55 {
+    color: var(--text-primary) !important;
+}
+
+.linkEntry-0-2-54 {
+    color: var(--text-secondary) !important;
+    transition: color 0.15s ease !important;
+}
+
+.count-0-2-59 {
+    background: rgba(88, 101, 242, 0.2) !important;
+    color: var(--primary) !important;
+    border-radius: 10px !important;
+    padding: 1px 6px !important;
+    font-size: 11px !important;
+}
+
+.upgradeNowButton-0-2-45 {
+    background: var(--primary) !important;
+    color: #fff !important;
+    border-radius: var(--radius) !important;
+    font-weight: 600 !important;
+    transition: background 0.15s ease !important;
+    text-align: center !important;
+    padding: 8px 12px !important;
+    margin: 8px !important;
+}
+
+.upgradeNowButton-0-2-45:hover {
+    background: var(--primary-dark) !important;
+}
+
+/* Profile tab underline - override the brown --primary-color */
+.vTabLabel-0-2-225 {
+    background-color: var(--dark-lighter) !important;
+    color: var(--text-primary) !important;
+    box-shadow: inset 0 -3px 0 0 var(--primary) !important;
+}
+
+/* Stat values on profile - override brown --primary-color */
+.statText-0-2-221,
+.statTextContainer-0-2-220,
+.statValue-0-2-219 a {
+    color: var(--primary) !important;
+}
+
+/* See All link on profile */
+.button-0-2-270 {
+    color: var(--primary) !important;
+}
+
+/* Join Game button */
+.button-0-2-322 {
+    background: var(--success) !important;
+    border-color: var(--success) !important;
+    border-radius: var(--radius) !important;
+    color: #fff !important;
 }
 
 /* Snappy animations */
