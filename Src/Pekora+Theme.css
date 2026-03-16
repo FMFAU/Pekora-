@@ -57,6 +57,14 @@ body, html {
     background-image: none !important;
 }
 
+/* Force navbar color via ID — wins over inline/class styles */
+#stylable-nav-bar,
+#stylable-nav-bar.navbar {
+    background: var(--dark-lighter) !important;
+    background-image: none !important;
+    background-color: var(--dark-lighter) !important;
+}
+
 .navContainer-0-2-2 {
     background: transparent !important;
 }
@@ -199,8 +207,17 @@ body, html {
 
 .gameCardContainer-0-2-145:hover {
     border-color: var(--primary) !important;
-    box-shadow: var(--shadow) !important;
-    transform: translateY(-2px) !important;
+    box-shadow: 0 0 0 1px var(--primary) !important;
+    transform: none !important;
+}
+
+/* Hide the ugly popup footer on hover */
+.gameCardContainer-0-2-145:hover div {
+    display: unset !important;
+}
+
+.gameCardFooterContainer-0-2-172 {
+    display: none !important;
 }
 
 .gameCardThumbContainer-0-2-147 {
@@ -715,11 +732,18 @@ h1, h2, h3 {
 
 .link-0-2-57 {
     text-decoration: none !important;
+    display: block !important;
+    padding: 2px 8px !important;
 }
 
 .wrapper-0-2-56 {
     transition: background 0.15s ease !important;
     border-radius: var(--radius) !important;
+    padding: 6px 8px !important;
+}
+
+.wrapper-0-2-56:hover {
+    background: var(--dark-hover) !important;
 }
 
 .wrapper-0-2-56:hover .name-0-2-55 {
@@ -729,6 +753,11 @@ h1, h2, h3 {
 .linkEntry-0-2-54 {
     color: var(--text-secondary) !important;
     transition: color 0.15s ease !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
 }
 
 .count-0-2-59 {
@@ -748,10 +777,6 @@ h1, h2, h3 {
     text-align: center !important;
     padding: 8px 12px !important;
     margin: 8px !important;
-}
-
-.upgradeNowButton-0-2-45:hover {
-    background: var(--primary-dark) !important;
 }
 
 /* Profile tab underline - override the brown --primary-color */
