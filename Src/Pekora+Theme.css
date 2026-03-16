@@ -5,7 +5,6 @@
     --primary: #5865f2;
     --primary-dark: #4752c4;
     --secondary: #8b5cf6;
-    --accent: #06b6d4;
     --success: #10b981;
     --warning: #f59e0b;
     --danger: #ef4444;
@@ -17,11 +16,10 @@
     --text-secondary: #8b949e;
     --text-muted: #484f58;
     --border: #30363d;
-    --border-subtle: #21262d;
-    --shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-    --radius: 8px;
-    --radius-lg: 12px;
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+    --radius: 6px;
+    --radius-lg: 10px;
 }
 
 /* Global Reset */
@@ -40,21 +38,27 @@ body, html {
 .navbar-0-2-1 {
     background: var(--dark-lighter) !important;
     border-bottom: 1px solid var(--border) !important;
-    box-shadow: 0 1px 0 var(--border) !important;
+    box-shadow: none !important;
+}
+
+.navbar-d1-0-2-8 {
+    background: var(--dark-lighter) !important;
+    background-image: none !important;
 }
 
 .navContainer-0-2-2 {
     background: transparent !important;
 }
 
-/* Navigation Links */
+/* Nav Links */
 .linkEntry-0-2-15 {
     color: var(--text-secondary) !important;
     font-weight: 500 !important;
-    padding: 6px 14px !important;
+    padding: 6px 12px !important;
     border-radius: var(--radius) !important;
     transition: all 0.15s ease !important;
     text-decoration: none !important;
+    font-size: 15px !important;
 }
 
 .linkEntry-0-2-15:hover {
@@ -64,8 +68,7 @@ body, html {
 }
 
 .linkEntry-0-2-15.active {
-    color: var(--primary) !important;
-    background: rgba(88, 101, 242, 0.15) !important;
+    color: var(--text-primary) !important;
 }
 
 /* Search Bar */
@@ -73,7 +76,7 @@ body, html {
     background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
-    transition: all 0.15s ease !important;
+    transition: border-color 0.15s ease !important;
 }
 
 .wrapper-0-2-20:focus-within {
@@ -92,318 +95,286 @@ body, html {
     color: var(--text-muted) !important;
 }
 
-/* Currency Display */
-.currencySpan-0-2-95 {
+/* Currency */
+.currencySpan-0-2-133 {
     color: var(--text-primary) !important;
-    font-weight: 600 !important;
+    font-weight: 500 !important;
 }
 
-/* Main Content */
-.main-0-2-29, .container-0-2-114 {
+/* Main */
+.main-0-2-29 {
     background: var(--dark) !important;
 }
 
-/* Sidebar */
-.sidebar-0-2-3,
-[class*="sidebar"] {
+.container-0-2-32 {
+    background: transparent !important;
+}
+
+/* Home Header */
+.homeHeader-0-2-36 {
     background: var(--dark-lighter) !important;
-    border-right: 1px solid var(--border) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 20px !important;
+    margin-bottom: 16px !important;
 }
 
-[class*="sidebarLink"],
-[class*="navItem"] {
-    color: var(--text-secondary) !important;
-    transition: all 0.15s ease !important;
-    border-radius: var(--radius) !important;
-}
-
-[class*="sidebarLink"]:hover,
-[class*="navItem"]:hover {
+.helloMessage-0-2-39 {
     color: var(--text-primary) !important;
-    background: var(--dark-hover) !important;
+    font-weight: 700 !important;
+    font-size: 32px !important;
+    text-decoration: none !important;
 }
 
-/* Cards - Clean & Modern */
-.card-0-2-99,
-.gameCardContainer-0-2-161,
-.thumbnailWrapper-0-2-154 {
+.headshotWrapper-0-2-37 {
+    background-color: var(--dark-card) !important;
+    box-shadow: none !important;
+    border: 2px solid var(--border) !important;
+}
+
+/* Section Headers */
+.containerHeader-0-2-31 {
+    border-bottom: 1px solid var(--border) !important;
+    padding-bottom: 10px !important;
+    margin-bottom: 16px !important;
+}
+
+.containerHeader-0-2-31 h3 {
+    color: var(--text-primary) !important;
+    font-weight: 700 !important;
+    font-size: 20px !important;
+    margin: 0 !important;
+}
+
+/* Friends section */
+.friendSection-0-2-40 .section-content {
+    background: var(--dark-lighter) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 16px !important;
+    margin-bottom: 16px !important;
+}
+
+.thumbnailWrapper-0-2-138 {
+    box-shadow: none !important;
+    border: 2px solid var(--border) !important;
+    transition: border-color 0.15s ease !important;
+}
+
+.thumbnailWrapper-0-2-138:hover {
+    box-shadow: none !important;
+    border-color: var(--primary) !important;
+}
+
+.username-0-2-139 {
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+    font-size: 12px !important;
+}
+
+.username-0-2-139:hover {
+    color: var(--primary) !important;
+}
+
+/* Game Cards */
+.gameCardContainer-0-2-145 {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-lg) !important;
     box-shadow: none !important;
     transition: border-color 0.15s ease, transform 0.15s ease !important;
-    overflow: hidden !important;
 }
 
-.card-0-2-99:hover,
-.gameCardContainer-0-2-161:hover {
-    transform: translateY(-3px) !important;
-    box-shadow: var(--shadow) !important;
+.gameCardContainer-0-2-145:hover {
     border-color: var(--primary) !important;
+    box-shadow: var(--shadow) !important;
+    transform: translateY(-2px) !important;
 }
 
-/* Game Cards */
-.gameCardThumbContainer-0-2-163 {
+.gameCardThumbContainer-0-2-147 {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
     overflow: hidden !important;
-    aspect-ratio: 1 / 1 !important;
 }
 
-.gameCardThumbContainer-0-2-163 img {
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
+.gameCardThumbContainer-0-2-147 img {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
     transition: transform 0.2s ease !important;
 }
 
-.gameCardContainer-0-2-161:hover .gameCardThumbContainer-0-2-163 img {
+.gameCardContainer-0-2-145:hover .gameCardThumbContainer-0-2-147 img {
     transform: scale(1.04) !important;
 }
 
-.gameCardTitle-0-2-165 {
+.gameCardTitle-0-2-149 {
     color: var(--text-primary) !important;
     font-weight: 600 !important;
     font-size: 13px !important;
-    line-height: 1.4 !important;
-    padding: 10px 12px 4px !important;
-    margin: 0 !important;
 }
 
-.gameCardPlaying-0-2-166 {
+.gameCardPlaying-0-2-150 {
     color: var(--text-secondary) !important;
-    font-size: 12px !important;
-    padding: 0 12px 10px !important;
 }
 
-/* Profile Thumbnails */
-.thumbnailWrapper-0-2-154 {
-    border-radius: 50% !important;
-    aspect-ratio: 1 / 1 !important;
-    width: 80px !important;
-    height: 80px !important;
-    border: 2px solid var(--border) !important;
-    transition: border-color 0.15s ease !important;
-}
-
-.thumbnailWrapper-0-2-154:hover {
-    border-color: var(--primary) !important;
-}
-
-.thumbnailWrapper-0-2-154 img {
-    border-radius: 50% !important;
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
-}
-
-.username-0-2-155 {
+.playerCount-0-2-180 {
     color: var(--text-secondary) !important;
-    font-weight: 500 !important;
-    font-size: 12px !important;
-    text-align: center !important;
-    margin-top: 6px !important;
 }
 
-.username-0-2-155:hover {
+.yearText3-0-2-181 {
+    color: var(--text-muted) !important;
+}
+
+.gameCardFooterContainer-0-2-172 {
+    background: var(--dark-card) !important;
+    border-top: 1px solid var(--border) !important;
+}
+
+.creatorText-0-2-175 {
+    color: var(--text-secondary) !important;
+}
+
+.creatorText-0-2-175 a {
     color: var(--primary) !important;
 }
 
-/* Buttons - Clean Design */
-.btn-0-2-149,
-.newContinueButton-0-2-141,
-.newBuyButton-0-2-140,
-.seeAllButton-0-2-130 {
+/* Vote bars */
+.voteBackground-0-2-156 {
+    background-color: var(--dark-hover) !important;
+    border-radius: 3px !important;
+}
+
+.votePercentage-0-2-159 {
+    background-color: var(--success) !important;
+    border-radius: 3px !important;
+}
+
+.segment-0-2-160 {
+    background-color: var(--dark-lighter) !important;
+}
+
+/* Buttons */
+.newContinueButton-0-2-59,
+.newBuyButton-0-2-58 {
     background: var(--primary) !important;
     color: #fff !important;
     border: none !important;
     border-radius: var(--radius) !important;
     font-weight: 600 !important;
     font-size: 13px !important;
-    padding: 8px 16px !important;
-    transition: background 0.15s ease, transform 0.15s ease !important;
-    cursor: pointer !important;
-    text-decoration: none !important;
-    display: inline-block !important;
+    padding: 7px 14px !important;
+    transition: background 0.15s ease !important;
 }
 
-.btn-0-2-149:hover,
-.newContinueButton-0-2-141:hover,
-.newBuyButton-0-2-140:hover,
-.seeAllButton-0-2-130:hover {
+.newContinueButton-0-2-59:hover,
+.newBuyButton-0-2-58:hover {
     background: var(--primary-dark) !important;
-    transform: translateY(-1px) !important;
+    border-color: var(--primary-dark) !important;
 }
 
-/* Cancel Button */
-.newCancelButton-0-2-143 {
-    background: transparent !important;
-    color: var(--text-secondary) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius) !important;
-    font-weight: 500 !important;
-    padding: 8px 16px !important;
-    transition: all 0.15s ease !important;
-}
-
-.newCancelButton-0-2-143:hover {
-    background: var(--dark-hover) !important;
-    color: var(--text-primary) !important;
-    border-color: var(--primary) !important;
-}
-
-/* Upgrade / CTA Button */
-[class*="upgradeButton"],
-[class*="upgrade-btn"] {
-    background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+.seeAllButton-0-2-48 {
+    background: var(--primary) !important;
     color: #fff !important;
     border: none !important;
     border-radius: var(--radius) !important;
     font-weight: 600 !important;
-    padding: 8px 16px !important;
-    transition: opacity 0.15s ease !important;
-    cursor: pointer !important;
+    font-size: 13px !important;
+    padding: 5px 14px !important;
+    transition: background 0.15s ease !important;
+    box-shadow: none !important;
 }
 
-[class*="upgradeButton"]:hover,
-[class*="upgrade-btn"]:hover {
-    opacity: 0.9 !important;
+.seeAllButton-0-2-48:hover {
+    background: var(--primary-dark) !important;
+    border-color: var(--primary-dark) !important;
+    box-shadow: none !important;
 }
 
-/* Headers */
-h1, h2, h3, .containerHeader-0-2-113 h3 {
+.newCancelButton-0-2-61 {
+    background: var(--dark-card) !important;
+    color: var(--text-secondary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    transition: all 0.15s ease !important;
+}
+
+.newCancelButton-0-2-61:hover {
+    background: var(--dark-hover) !important;
     color: var(--text-primary) !important;
-    font-weight: 700 !important;
-    margin-bottom: 16px !important;
+    border-color: var(--primary) !important;
+    box-shadow: none !important;
 }
 
 /* Links */
-.aLink-0-2-199,
-.nameLink-0-2-82 {
+.aLink-0-2-183 {
     color: var(--primary) !important;
     text-decoration: none !important;
-    transition: color 0.15s ease !important;
 }
 
-.aLink-0-2-199:hover,
-.nameLink-0-2-82:hover {
+.aLink-0-2-183:hover {
     color: var(--primary-dark) !important;
     text-decoration: underline !important;
 }
 
+.nameLink-0-2-120,
+.nameSpan-0-2-121 {
+    color: var(--text-secondary) !important;
+}
+
+.nameSpan-0-2-121:hover {
+    color: var(--text-primary) !important;
+}
+
 /* Footer */
-.footerContainer-0-2-32 {
+.footerContainer-0-2-64,
+.footerContainer-d0-0-2-69 {
     background: var(--dark-lighter) !important;
     border-top: 1px solid var(--border) !important;
+    box-shadow: none !important;
     margin-top: 40px !important;
 }
 
-.footerLink-0-2-35 a {
+.footerLink-0-2-67 a,
+.footerLink-d1-0-2-70 a {
     color: var(--text-secondary) !important;
     text-decoration: none !important;
     transition: color 0.15s ease !important;
 }
 
-.footerLink-0-2-35 a:hover {
+.footerLink-0-2-67 a:hover {
     color: var(--primary) !important;
 }
 
-.footerNote-0-2-36 {
+.footerNote-0-2-68,
+.footerNote-d2-0-2-71 {
     color: var(--text-muted) !important;
-}
-
-/* Dropdown */
-.dropdownNew-0-2-391 {
-    background: var(--dark-card) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius) !important;
-    box-shadow: var(--shadow-lg) !important;
-}
-
-.dropdownItem-0-2-392 {
-    transition: background-color 0.15s ease !important;
-}
-
-.dropdownItem-0-2-392:hover {
-    background: var(--dark-hover) !important;
-}
-
-.dropdownItemLink-0-2-393 {
-    color: var(--text-secondary) !important;
-    text-decoration: none !important;
-    transition: color 0.15s ease !important;
-}
-
-.dropdownItemLink-0-2-393:hover {
-    color: var(--text-primary) !important;
-}
-
-/* Profile Header */
-.homeHeader-0-2-118 {
-    background: var(--dark-lighter) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-lg) !important;
-    padding: 24px !important;
-    margin-bottom: 24px !important;
-}
-
-.helloMessage-0-2-121 {
-    color: var(--text-primary) !important;
-    font-weight: 700 !important;
-    font-size: 26px !important;
-}
-
-/* Section Headers */
-.containerHeader-0-2-113 {
-    border-bottom: 1px solid var(--border) !important;
-    padding-bottom: 12px !important;
-    margin-bottom: 20px !important;
-}
-
-.containerHeader-0-2-113 h3 {
-    color: var(--text-primary) !important;
-    font-weight: 700 !important;
-    font-size: 18px !important;
-    margin: 0 !important;
-}
-
-/* Vote Bars */
-.voteBackground-0-2-172 {
-    background: var(--dark-hover) !important;
-    border-radius: 4px !important;
-}
-
-.hasVotesPercentage-0-2-174 {
-    background: var(--success) !important;
-    border-radius: 4px !important;
 }
 
 /* Alert */
 .alertBg-0-2-25 {
     background: var(--warning) !important;
-    border-radius: var(--radius) !important;
 }
 
 .alertText-0-2-26 {
     color: #fff !important;
 }
 
-/* Pekora+ Elements */
+/* Pekora+ badge */
 #pk-nav-badge {
-    background: var(--primary) !important;
-    color: #fff !important;
-    padding: 5px 12px !important;
+    background: rgba(88, 101, 242, 0.15) !important;
+    color: var(--primary) !important;
+    padding: 4px 10px !important;
     border-radius: var(--radius) !important;
-    font-weight: 600 !important;
-    font-size: 13px !important;
-    transition: background 0.15s ease !important;
+    font-weight: 700 !important;
+    font-size: 12px !important;
+    border: 1px solid rgba(88, 101, 242, 0.3) !important;
+    transition: all 0.15s ease !important;
 }
 
 #pk-nav-badge:hover {
-    background: var(--primary-dark) !important;
+    background: rgba(88, 101, 242, 0.25) !important;
 }
 
 #pk-config-panel {
-    background: var(--dark-lighter) !important;
+    background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-lg) !important;
     box-shadow: var(--shadow-lg) !important;
@@ -413,7 +384,6 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
     background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
-    box-shadow: var(--shadow-lg) !important;
     color: var(--text-primary) !important;
 }
 
@@ -423,16 +393,12 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
     display: none !important;
 }
 
-/* Clean up spacing */
-.row-0-2-4 {
-    margin: 0 !important;
+/* Headers */
+h1, h2, h3 {
+    color: var(--text-primary) !important;
 }
 
-.col-12 {
-    padding: 0 !important;
-}
-
-/* Modern scrollbar */
+/* Scrollbar */
 ::-webkit-scrollbar {
     width: 6px !important;
 }
@@ -450,18 +416,14 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
     background: var(--text-muted) !important;
 }
 
-/* Responsive cleanup */
+/* Responsive */
 @media (max-width: 768px) {
-    .gameCardContainer-0-2-161:hover {
-        transform: none !important;
-    }
-
-    .btn-0-2-149:hover {
+    .gameCardContainer-0-2-145:hover {
         transform: none !important;
     }
 }
 
-/* Keep animations snappy */
+/* Snappy animations */
 * {
     animation-duration: 0.15s !important;
     animation-timing-function: ease !important;
