@@ -390,10 +390,8 @@ body, html {
 #pk-nav-badge {
     color: var(--primary) !important;
     padding: 4px 10px !important;
-    border-radius: var(--radius) !important;
     font-weight: 700 !important;
     font-size: 12px !important;
-    border: 1px solid rgba(88, 101, 242, 0.3) !important;
     transition: all 0.15s ease !important;
 }
 
