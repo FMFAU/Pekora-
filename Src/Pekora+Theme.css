@@ -394,11 +394,6 @@ body, html {
     font-size: 12px !important;
     transition: all 0.15s ease !important;
 }
-
-#pk-nav-badge:hover {
-    background: rgba(88, 101, 242, 0.25) !important;
-}
-
 #pk-config-panel {
     background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
