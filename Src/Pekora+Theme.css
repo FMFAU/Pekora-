@@ -1,0 +1,429 @@
+/* Pekora+ Modern Theme - Super Clean & Modern */
+
+/* Root Variables */
+:root {
+    --primary-color: #6366f1;
+    --primary-hover: #4f46e5;
+    --secondary-color: #8b5cf6;
+    --accent-color: #ec4899;
+    --background-primary: #0f172a;
+    --background-secondary: #1e293b;
+    --background-tertiary: #334155;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #64748b;
+    --border-color: #334155;
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --error-color: #ef4444;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+}
+
+/* Global Styles */
+* {
+    box-sizing: border-box !important;
+}
+
+html, body {
+    background: var(--background-primary) !important;
+    color: var(--text-primary) !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Navigation Bar */
+.navbar-0-2-1 {
+    background: linear-gradient(135deg, var(--background-secondary) 0%, var(--background-tertiary) 100%) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    backdrop-filter: blur(10px) !important;
+    box-shadow: var(--shadow-md) !important;
+}
+
+/* Navigation Links */
+.linkEntry-0-2-15 {
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+    padding: 8px 16px !important;
+    border-radius: var(--radius-sm) !important;
+    transition: all 0.2s ease !important;
+    position: relative !important;
+}
+
+.linkEntry-0-2-15:hover {
+    color: var(--text-primary) !important;
+    background: rgba(99, 102, 241, 0.1) !important;
+    transform: translateY(-1px) !important;
+}
+
+.linkEntry-0-2-15.active {
+    color: var(--primary-color) !important;
+    background: rgba(99, 102, 241, 0.15) !important;
+}
+
+.linkEntry-0-2-15.active::after {
+    content: '' !important;
+    position: absolute !important;
+    bottom: -2px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 20px !important;
+    height: 2px !important;
+    background: var(--primary-color) !important;
+    border-radius: 2px !important;
+}
+
+/* Search Bar */
+.wrapper-0-2-20 {
+    background: var(--background-tertiary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm) !important;
+    transition: all 0.2s ease !important;
+}
+
+.wrapper-0-2-20:focus-within {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+}
+
+.searchInput-0-2-21 {
+    background: transparent !important;
+    color: var(--text-primary) !important;
+    font-weight: 400 !important;
+}
+
+.searchInput-0-2-21::placeholder {
+    color: var(--text-muted) !important;
+}
+
+/* Currency Display */
+.currencySpan-0-2-95 {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+}
+
+/* Main Container */
+.main-0-2-29, .container-0-2-114 {
+    background: var(--background-primary) !important;
+}
+
+/* Cards */
+.card-0-2-99, .gameCardContainer-0-2-161, .thumbnailWrapper-0-2-154 {
+    background: var(--background-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-md) !important;
+    transition: all 0.3s ease !important;
+    overflow: hidden !important;
+}
+
+.card-0-2-99:hover, .gameCardContainer-0-2-161:hover {
+    transform: translateY(-4px) !important;
+    box-shadow: var(--shadow-lg) !important;
+    border-color: var(--primary-color) !important;
+}
+
+.thumbnailWrapper-0-2-154:hover {
+    transform: scale(1.05) !important;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.3) !important;
+}
+
+/* Game Cards */
+.gameCardThumbContainer-0-2-163 {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+    overflow: hidden !important;
+}
+
+.gameCardThumbContainer-0-2-163 img {
+    transition: transform 0.3s ease !important;
+}
+
+.gameCardContainer-0-2-161:hover .gameCardThumbContainer-0-2-163 img {
+    transform: scale(1.1) !important;
+}
+
+.gameCardTitle-0-2-165 {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+}
+
+.gameCardPlaying-0-2-166 {
+    color: var(--text-muted) !important;
+    font-size: 12px !important;
+}
+
+/* Buttons */
+.btn-0-2-149, .newContinueButton-0-2-141, .newBuyButton-0-2-140 {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-hover)) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: var(--radius-md) !important;
+    font-weight: 600 !important;
+    padding: 10px 20px !important;
+    transition: all 0.2s ease !important;
+    box-shadow: var(--shadow-sm) !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+.btn-0-2-149:hover, .newContinueButton-0-2-141:hover, .newBuyButton-0-2-140:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: var(--shadow-md) !important;
+    background: linear-gradient(135deg, var(--primary-hover), var(--primary-color)) !important;
+}
+
+.btn-0-2-149:active, .newContinueButton-0-2-141:active, .newBuyButton-0-2-140:active {
+    transform: translateY(0) !important;
+}
+
+/* Cancel Button */
+.newCancelButton-0-2-143 {
+    background: var(--background-tertiary) !important;
+    color: var(--text-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    transition: all 0.2s ease !important;
+}
+
+.newCancelButton-0-2-143:hover {
+    background: var(--background-secondary) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--primary-color) !important;
+}
+
+/* Usernames */
+.username-0-2-155 {
+    color: var(--text-primary) !important;
+    font-weight: 500 !important;
+    transition: color 0.2s ease !important;
+}
+
+.username-0-2-155:hover {
+    color: var(--primary-color) !important;
+}
+
+/* Headers */
+h1, h2, h3, .containerHeader-0-2-113 h3 {
+    color: var(--text-primary) !important;
+    font-weight: 700 !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Links */
+.aLink-0-2-199, .nameLink-0-2-82 {
+    color: var(--primary-color) !important;
+    transition: color 0.2s ease !important;
+}
+
+.aLink-0-2-199:hover, .nameLink-0-2-82:hover {
+    color: var(--primary-hover) !important;
+    text-decoration: underline !important;
+}
+
+/* Footer */
+.footerContainer-0-2-32 {
+    background: var(--background-secondary) !important;
+    border-top: 1px solid var(--border-color) !important;
+}
+
+.footerLink-0-2-35 a {
+    color: var(--text-secondary) !important;
+    transition: color 0.2s ease !important;
+}
+
+.footerLink-0-2-35 a:hover {
+    color: var(--primary-color) !important;
+}
+
+.footerNote-0-2-36 {
+    color: var(--text-muted) !important;
+}
+
+/* Vote Bars */
+.voteBackground-0-2-172 {
+    background: var(--background-tertiary) !important;
+}
+
+.hasVotesPercentage-0-2-174 {
+    background: linear-gradient(90deg, var(--success-color), var(--primary-color)) !important;
+}
+
+/* Dropdowns */
+.dropdownNew-0-2-391 {
+    background: var(--background-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-lg) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+.dropdownItem-0-2-392 {
+    transition: background-color 0.2s ease !important;
+}
+
+.dropdownItem-0-2-392:hover {
+    background: var(--background-tertiary) !important;
+}
+
+.dropdownItemLink-0-2-393 {
+    color: var(--text-secondary) !important;
+    transition: color 0.2s ease !important;
+}
+
+.dropdownItemLink-0-2-393:hover {
+    color: var(--text-primary) !important;
+}
+
+/* Alert Bar */
+.alertBg-0-2-25 {
+    background: linear-gradient(135deg, var(--warning-color), var(--accent-color)) !important;
+}
+
+/* Profile Headers */
+.homeHeader-0-2-118 {
+    background: linear-gradient(135deg, var(--background-secondary), var(--background-tertiary)) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 20px !important;
+    border: 1px solid var(--border-color) !important;
+    box-shadow: var(--shadow-md) !important;
+}
+
+.helloMessage-0-2-121 {
+    color: var(--text-primary) !important;
+    font-weight: 700 !important;
+    font-size: 24px !important;
+}
+
+/* Loading States */
+#pk-loading-text {
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color), var(--accent-color)) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    animation: shimmer 2s ease-in-out infinite alternate !important;
+}
+
+@keyframes shimmer {
+    0% { opacity: 0.8; }
+    100% { opacity: 1; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px !important;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--background-secondary) !important;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--background-tertiary) !important;
+    border-radius: 4px !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-color) !important;
+}
+
+/* Pekora+ Elements Enhancement */
+#pk-nav-badge {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)) !important;
+    color: white !important;
+    padding: 6px 12px !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm) !important;
+    transition: all 0.2s ease !important;
+}
+
+#pk-nav-badge:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: var(--shadow-md) !important;
+}
+
+#pk-config-panel {
+    background: var(--background-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-lg) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+#pk-toast {
+    background: var(--background-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-lg) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .gameCardContainer-0-2-161:hover {
+        transform: none !important;
+    }
+    
+    .btn-0-2-149:hover {
+        transform: none !important;
+    }
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.card-0-2-99, .gameCardContainer-0-2-161 {
+    animation: fadeIn 0.5s ease-out !important;
+}
+
+/* Modern Glass Effect */
+.card-0-2-99, .dropdownNew-0-2-391, #pk-config-panel {
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+}
+
+/* Focus States */
+button:focus, input:focus, select:focus, textarea:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Success/Error States */
+.newBuyButton-0-2-140:disabled {
+    background: var(--background-tertiary) !important;
+    color: var(--text-muted) !important;
+    cursor: not-allowed !important;
+    opacity: 0.6 !important;
+}
+
+/* Modern Typography */
+.text-0-2-94, .creatorText-0-2-191 {
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+}
+
+/* Enhanced Shadows */
+.shadow-enhanced {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Gradient Text Effect */
+.gradient-text {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color), var(--accent-color)) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+}
