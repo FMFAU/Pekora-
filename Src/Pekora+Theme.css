@@ -2,22 +2,26 @@
 
 /* Root Variables */
 :root {
-    --primary: #3b82f6;
-    --primary-dark: #2563eb;
+    --primary: #5865f2;
+    --primary-dark: #4752c4;
     --secondary: #8b5cf6;
     --accent: #06b6d4;
     --success: #10b981;
     --warning: #f59e0b;
     --danger: #ef4444;
-    --dark: #0f172a;
-    --dark-lighter: #1e293b;
-    --dark-card: #334155;
-    --text-primary: #f8fafc;
-    --text-secondary: #cbd5e1;
-    --text-muted: #64748b;
-    --border: #334155;
-    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    --dark: #0d1117;
+    --dark-lighter: #161b22;
+    --dark-card: #21262d;
+    --dark-hover: #30363d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --border: #30363d;
+    --border-subtle: #21262d;
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --radius: 8px;
+    --radius-lg: 12px;
 }
 
 /* Global Reset */
@@ -36,7 +40,7 @@ body, html {
 .navbar-0-2-1 {
     background: var(--dark-lighter) !important;
     border-bottom: 1px solid var(--border) !important;
-    box-shadow: var(--shadow) !important;
+    box-shadow: 0 1px 0 var(--border) !important;
 }
 
 .navContainer-0-2-2 {
@@ -47,34 +51,34 @@ body, html {
 .linkEntry-0-2-15 {
     color: var(--text-secondary) !important;
     font-weight: 500 !important;
-    padding: 8px 16px !important;
-    border-radius: 6px !important;
-    transition: all 0.2s ease !important;
+    padding: 6px 14px !important;
+    border-radius: var(--radius) !important;
+    transition: all 0.15s ease !important;
     text-decoration: none !important;
 }
 
 .linkEntry-0-2-15:hover {
     color: var(--text-primary) !important;
-    background: rgba(59, 130, 246, 0.1) !important;
+    background: var(--dark-hover) !important;
     text-decoration: none !important;
 }
 
 .linkEntry-0-2-15.active {
     color: var(--primary) !important;
-    background: rgba(59, 130, 246, 0.15) !important;
+    background: rgba(88, 101, 242, 0.15) !important;
 }
 
 /* Search Bar */
 .wrapper-0-2-20 {
     background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-    transition: all 0.2s ease !important;
+    border-radius: var(--radius) !important;
+    transition: all 0.15s ease !important;
 }
 
 .wrapper-0-2-20:focus-within {
     border-color: var(--primary) !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.15) !important;
 }
 
 .searchInput-0-2-21 {
@@ -99,28 +103,48 @@ body, html {
     background: var(--dark) !important;
 }
 
+/* Sidebar */
+.sidebar-0-2-3,
+[class*="sidebar"] {
+    background: var(--dark-lighter) !important;
+    border-right: 1px solid var(--border) !important;
+}
+
+[class*="sidebarLink"],
+[class*="navItem"] {
+    color: var(--text-secondary) !important;
+    transition: all 0.15s ease !important;
+    border-radius: var(--radius) !important;
+}
+
+[class*="sidebarLink"]:hover,
+[class*="navItem"]:hover {
+    color: var(--text-primary) !important;
+    background: var(--dark-hover) !important;
+}
+
 /* Cards - Clean & Modern */
 .card-0-2-99,
 .gameCardContainer-0-2-161,
 .thumbnailWrapper-0-2-154 {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 12px !important;
-    box-shadow: var(--shadow) !important;
-    transition: all 0.3s ease !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: none !important;
+    transition: border-color 0.15s ease, transform 0.15s ease !important;
     overflow: hidden !important;
 }
 
 .card-0-2-99:hover,
 .gameCardContainer-0-2-161:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: var(--shadow-lg) !important;
+    transform: translateY(-3px) !important;
+    box-shadow: var(--shadow) !important;
     border-color: var(--primary) !important;
 }
 
 /* Game Cards */
 .gameCardThumbContainer-0-2-163 {
-    border-radius: 12px 12px 0 0 !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
     overflow: hidden !important;
     aspect-ratio: 1 / 1 !important;
 }
@@ -129,26 +153,26 @@ body, html {
     width: 100% !important;
     height: 100% !important;
     object-fit: cover !important;
-    transition: transform 0.3s ease !important;
+    transition: transform 0.2s ease !important;
 }
 
 .gameCardContainer-0-2-161:hover .gameCardThumbContainer-0-2-163 img {
-    transform: scale(1.05) !important;
+    transform: scale(1.04) !important;
 }
 
 .gameCardTitle-0-2-165 {
     color: var(--text-primary) !important;
     font-weight: 600 !important;
-    font-size: 14px !important;
+    font-size: 13px !important;
     line-height: 1.4 !important;
-    padding: 12px !important;
+    padding: 10px 12px 4px !important;
     margin: 0 !important;
 }
 
 .gameCardPlaying-0-2-166 {
-    color: var(--text-muted) !important;
+    color: var(--text-secondary) !important;
     font-size: 12px !important;
-    padding: 0 12px 12px !important;
+    padding: 0 12px 10px !important;
 }
 
 /* Profile Thumbnails */
@@ -157,6 +181,12 @@ body, html {
     aspect-ratio: 1 / 1 !important;
     width: 80px !important;
     height: 80px !important;
+    border: 2px solid var(--border) !important;
+    transition: border-color 0.15s ease !important;
+}
+
+.thumbnailWrapper-0-2-154:hover {
+    border-color: var(--primary) !important;
 }
 
 .thumbnailWrapper-0-2-154 img {
@@ -167,11 +197,11 @@ body, html {
 }
 
 .username-0-2-155 {
-    color: var(--text-primary) !important;
+    color: var(--text-secondary) !important;
     font-weight: 500 !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     text-align: center !important;
-    margin-top: 8px !important;
+    margin-top: 6px !important;
 }
 
 .username-0-2-155:hover {
@@ -184,13 +214,13 @@ body, html {
 .newBuyButton-0-2-140,
 .seeAllButton-0-2-130 {
     background: var(--primary) !important;
-    color: white !important;
+    color: #fff !important;
     border: none !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius) !important;
     font-weight: 600 !important;
-    font-size: 14px !important;
-    padding: 10px 20px !important;
-    transition: all 0.2s ease !important;
+    font-size: 13px !important;
+    padding: 8px 16px !important;
+    transition: background 0.15s ease, transform 0.15s ease !important;
     cursor: pointer !important;
     text-decoration: none !important;
     display: inline-block !important;
@@ -202,7 +232,6 @@ body, html {
 .seeAllButton-0-2-130:hover {
     background: var(--primary-dark) !important;
     transform: translateY(-1px) !important;
-    box-shadow: var(--shadow) !important;
 }
 
 /* Cancel Button */
@@ -210,16 +239,34 @@ body, html {
     background: transparent !important;
     color: var(--text-secondary) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius) !important;
     font-weight: 500 !important;
-    padding: 10px 20px !important;
-    transition: all 0.2s ease !important;
+    padding: 8px 16px !important;
+    transition: all 0.15s ease !important;
 }
 
 .newCancelButton-0-2-143:hover {
-    background: var(--dark-card) !important;
+    background: var(--dark-hover) !important;
     color: var(--text-primary) !important;
     border-color: var(--primary) !important;
+}
+
+/* Upgrade / CTA Button */
+[class*="upgradeButton"],
+[class*="upgrade-btn"] {
+    background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: var(--radius) !important;
+    font-weight: 600 !important;
+    padding: 8px 16px !important;
+    transition: opacity 0.15s ease !important;
+    cursor: pointer !important;
+}
+
+[class*="upgradeButton"]:hover,
+[class*="upgrade-btn"]:hover {
+    opacity: 0.9 !important;
 }
 
 /* Headers */
@@ -234,7 +281,7 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
 .nameLink-0-2-82 {
     color: var(--primary) !important;
     text-decoration: none !important;
-    transition: color 0.2s ease !important;
+    transition: color 0.15s ease !important;
 }
 
 .aLink-0-2-199:hover,
@@ -253,7 +300,7 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
 .footerLink-0-2-35 a {
     color: var(--text-secondary) !important;
     text-decoration: none !important;
-    transition: color 0.2s ease !important;
+    transition: color 0.15s ease !important;
 }
 
 .footerLink-0-2-35 a:hover {
@@ -266,24 +313,24 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
 
 /* Dropdown */
 .dropdownNew-0-2-391 {
-    background: var(--dark-lighter) !important;
+    background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius) !important;
     box-shadow: var(--shadow-lg) !important;
 }
 
 .dropdownItem-0-2-392 {
-    transition: background-color 0.2s ease !important;
+    transition: background-color 0.15s ease !important;
 }
 
 .dropdownItem-0-2-392:hover {
-    background: var(--dark-card) !important;
+    background: var(--dark-hover) !important;
 }
 
 .dropdownItemLink-0-2-393 {
     color: var(--text-secondary) !important;
     text-decoration: none !important;
-    transition: color 0.2s ease !important;
+    transition: color 0.15s ease !important;
 }
 
 .dropdownItemLink-0-2-393:hover {
@@ -294,7 +341,7 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
 .homeHeader-0-2-118 {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-lg) !important;
     padding: 24px !important;
     margin-bottom: 24px !important;
 }
@@ -302,7 +349,7 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
 .helloMessage-0-2-121 {
     color: var(--text-primary) !important;
     font-weight: 700 !important;
-    font-size: 28px !important;
+    font-size: 26px !important;
 }
 
 /* Section Headers */
@@ -315,59 +362,62 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
 .containerHeader-0-2-113 h3 {
     color: var(--text-primary) !important;
     font-weight: 700 !important;
-    font-size: 20px !important;
+    font-size: 18px !important;
     margin: 0 !important;
 }
 
 /* Vote Bars */
 .voteBackground-0-2-172 {
-    background: var(--dark-card) !important;
+    background: var(--dark-hover) !important;
+    border-radius: 4px !important;
 }
 
 .hasVotesPercentage-0-2-174 {
     background: var(--success) !important;
+    border-radius: 4px !important;
 }
 
 /* Alert */
 .alertBg-0-2-25 {
     background: var(--warning) !important;
+    border-radius: var(--radius) !important;
 }
 
 .alertText-0-2-26 {
-    color: white !important;
+    color: #fff !important;
 }
 
 /* Pekora+ Elements */
 #pk-nav-badge {
     background: var(--primary) !important;
-    color: white !important;
-    padding: 6px 12px !important;
-    border-radius: 6px !important;
+    color: #fff !important;
+    padding: 5px 12px !important;
+    border-radius: var(--radius) !important;
     font-weight: 600 !important;
-    box-shadow: var(--shadow) !important;
-    transition: all 0.2s ease !important;
+    font-size: 13px !important;
+    transition: background 0.15s ease !important;
 }
 
 #pk-nav-badge:hover {
     background: var(--primary-dark) !important;
-    transform: translateY(-1px) !important;
 }
 
 #pk-config-panel {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-lg) !important;
     box-shadow: var(--shadow-lg) !important;
 }
 
 #pk-toast {
-    background: var(--dark-lighter) !important;
+    background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius) !important;
     box-shadow: var(--shadow-lg) !important;
+    color: var(--text-primary) !important;
 }
 
-/* Remove ugly shadows and borders */
+/* Hide ads */
 [class*="skyScraper"],
 [class*="adWrapper"] {
     display: none !important;
@@ -384,20 +434,20 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
 
 /* Modern scrollbar */
 ::-webkit-scrollbar {
-    width: 8px !important;
+    width: 6px !important;
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--dark-card) !important;
+    background: var(--dark) !important;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--text-muted) !important;
-    border-radius: 4px !important;
+    background: var(--border) !important;
+    border-radius: 3px !important;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--primary) !important;
+    background: var(--text-muted) !important;
 }
 
 /* Responsive cleanup */
@@ -405,14 +455,14 @@ h1, h2, h3, .containerHeader-0-2-113 h3 {
     .gameCardContainer-0-2-161:hover {
         transform: none !important;
     }
-    
+
     .btn-0-2-149:hover {
         transform: none !important;
     }
 }
 
-/* Remove all transitions for cleaner feel */
+/* Keep animations snappy */
 * {
-    animation-duration: 0.2s !important;
+    animation-duration: 0.15s !important;
     animation-timing-function: ease !important;
 }
