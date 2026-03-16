@@ -423,6 +423,247 @@ h1, h2, h3 {
     }
 }
 
+/* Profile page cards */
+.card-0-2-217 {
+    background: var(--dark-lighter) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+}
+
+.cardBody-0-2-207 {
+    background: var(--dark-lighter) !important;
+}
+
+/* Profile header */
+.profileContainer-0-2-189 {
+    background: transparent !important;
+}
+
+.profileHeaderContainer-0-2-206 {
+    background: var(--dark-lighter) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    margin-bottom: 12px !important;
+}
+
+.username-0-2-194 {
+    color: var(--text-primary) !important;
+    font-weight: 800 !important;
+}
+
+.userStatus-0-2-195 {
+    color: var(--text-secondary) !important;
+}
+
+.avatarHeadshotContainer-0-2-210 {
+    background-color: var(--dark-card) !important;
+    border-color: var(--border) !important;
+}
+
+/* Profile stats */
+.statHeader-0-2-218 {
+    color: var(--text-secondary) !important;
+}
+
+.statText-0-2-221 {
+    color: var(--primary) !important;
+}
+
+.statTextContainer-0-2-220 {
+    color: var(--primary) !important;
+    text-decoration: none !important;
+}
+
+/* Profile action buttons */
+.buttonHover-0-2-222:hover {
+    color: var(--danger) !important;
+    border-color: var(--danger) !important;
+}
+
+/* Profile tabs */
+.buttonCol-0-2-228 {
+    background: var(--dark-lighter) !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.vTabLabel-0-2-225 {
+    background-color: var(--dark-lighter) !important;
+    color: var(--text-primary) !important;
+    box-shadow: inset 0 -3px 0 0 var(--primary) !important;
+}
+
+.vTabLabel-0-2-225:hover {
+    background: var(--dark-hover) !important;
+}
+
+.vTabUnselected-0-2-230:not(:hover) {
+    box-shadow: none !important;
+}
+
+.count-0-2-231 {
+    background: rgba(88, 101, 242, 0.15) !important;
+    border-color: rgba(88, 101, 242, 0.3) !important;
+    color: var(--primary) !important;
+}
+
+/* Profile section headers */
+.header-0-2-237 {
+    color: var(--text-primary) !important;
+}
+
+/* Profile about body */
+.body-0-2-233 {
+    color: var(--text-secondary) !important;
+    background: var(--dark-lighter) !important;
+}
+
+/* Avatar wearing section */
+.avatarImageCard-0-2-250 {
+    background-color: var(--dark-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+}
+
+.assetContainerCard-0-2-249 {
+    background: var(--dark-card) !important;
+    border-radius: var(--radius-lg) !important;
+}
+
+/* Item image wrappers in profile */
+.imageWrapper-0-2-271 {
+    border-color: var(--border) !important;
+    border-radius: var(--radius) !important;
+    background: var(--dark-card) !important;
+}
+
+.itemLabel-0-2-273 {
+    color: var(--text-secondary) !important;
+}
+
+/* Friends on profile */
+.avatarWrapper-0-2-266 {
+    background-color: var(--dark-card) !important;
+    box-shadow: none !important;
+    border: 2px solid var(--border) !important;
+    transition: border-color 0.15s ease !important;
+}
+
+.avatarWrapper-0-2-266:hover {
+    box-shadow: none !important;
+    border-color: var(--primary) !important;
+}
+
+.playerName-0-2-267 {
+    color: var(--text-secondary) !important;
+}
+
+.sideRow-0-2-262 {
+    background: var(--dark-lighter) !important;
+}
+
+/* Collections section item borders */
+.imageWrapper-0-2-285 {
+    border-color: var(--border) !important;
+    background: var(--dark-card) !important;
+}
+
+/* Groups section */
+.groupCard-0-2-318 {
+    background-color: var(--dark-lighter) !important;
+    border: 1px solid var(--border) !important;
+}
+
+.groupName-0-2-309 {
+    color: var(--text-primary) !important;
+    border-bottom-color: var(--border) !important;
+}
+
+.description-0-2-310 {
+    color: var(--text-secondary) !important;
+    border-top-color: var(--border) !important;
+}
+
+.header-0-2-320 {
+    color: var(--text-secondary) !important;
+}
+
+.value-0-2-321 {
+    color: var(--text-primary) !important;
+}
+
+.buttonWrapper-0-2-307 {
+    background: var(--primary) !important;
+    border-radius: var(--radius) !important;
+}
+
+.buttonWrapper-0-2-307:hover {
+    background: var(--primary-dark) !important;
+    box-shadow: none !important;
+}
+
+/* Statistics section */
+.label-0-2-292 {
+    color: var(--text-secondary) !important;
+}
+
+.value-0-2-293 {
+    color: var(--text-primary) !important;
+}
+
+/* Profile see all / inventory links */
+.button-0-2-270 {
+    color: var(--primary) !important;
+}
+
+.button-0-2-270:hover {
+    color: var(--primary-dark) !important;
+}
+
+/* Chat panel */
+[class*="chatMenu"] {
+    background: var(--dark-lighter) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+}
+
+[class*="chatMenuHeader"] {
+    background: var(--dark-card) !important;
+    border-bottom: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+}
+
+[class*="chatLabel"] {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+}
+
+/* Settings/logout dropdown */
+.dropdownNew-0-2-391,
+[class*="dropdownClass"] ~ *,
+.dropdown-menu {
+    background: var(--dark-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-lg) !important;
+}
+
+.dropdown-item,
+[class*="dropdownItem"] {
+    color: var(--text-secondary) !important;
+    transition: background 0.15s ease !important;
+}
+
+.dropdown-item:hover,
+[class*="dropdownItem"]:hover {
+    background: var(--dark-hover) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Report abuse link */
+.link-0-2-246 {
+    color: var(--text-muted) !important;
+}
+
 /* Snappy animations */
 * {
     animation-duration: 0.15s !important;
