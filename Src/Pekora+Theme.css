@@ -388,7 +388,6 @@ body, html {
 
 /* Pekora+ badge */
 #pk-nav-badge {
-    background: rgba(88, 101, 242, 0.15) !important;
     color: var(--primary) !important;
     padding: 4px 10px !important;
     border-radius: var(--radius) !important;
