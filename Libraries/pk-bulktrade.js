@@ -73,7 +73,9 @@
     // ── Owner fetcher ──────────────────────────────────────────────────────
     async function FetchOwners(ItemId, Log) {
         if (BT_OwnerCache[ItemId]) return BT_OwnerCache[ItemId];
-        Log('Fetching owners of item ' + ItemId + '…');
+
+        // ── Try Koromons first ─────────────────────────────────────────────
+        Log('Fetching owners of item ' + ItemId + ' via Koromons…');
         try {
             const Data   = await GmFetch('https://www.koromons.xyz/api/items/' + ItemId + '/owners');
             const Owners = (Array.isArray(Data) ? Data : Data.owners || []).map(O => ({
@@ -81,11 +83,51 @@
                 username:     O.username || O.name || String(O.userId || O.id),
                 userAssetIds: O.userAssetIds || O.assets || [O.userAssetId].filter(Boolean),
             })).filter(O => O.userAssetIds.length > 0);
+            if (Owners.length > 0) {
+                BT_OwnerCache[ItemId] = Owners;
+                Log('Found ' + Owners.length + ' owners (Koromons)', '#4db87a');
+                return Owners;
+            }
+            Log('Koromons returned 0 owners — falling back to resellers API…', '#f59e0b');
+        } catch (E) {
+            Log('Koromons failed (' + E.message + ') — falling back to resellers API…', '#f59e0b');
+        }
+
+        // ── Fallback: pekora resellers endpoint ────────────────────────────
+        // Returns sellers currently listing the item; each seller has a
+        // unique userAssetId that we can include in a trade offer.
+        try {
+            Log('Fetching resellers of item ' + ItemId + '…');
+            let Cursor = null, All = [];
+            do {
+                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100&cursor=' + (Cursor || '');
+                const R   = await fetch(Url, { credentials: 'include' });
+                if (!R.ok) throw new Error('HTTP ' + R.status);
+                const J   = await R.json();
+                All    = All.concat(J.data || []);
+                Cursor = J.nextPageCursor || null;
+            } while (Cursor);
+
+            // Deduplicate by seller id — keep only their cheapest listing
+            const ByUser = new Map();
+            for (const Entry of All) {
+                const Uid = String(Entry.seller?.id);
+                if (!ByUser.has(Uid) || Entry.price < ByUser.get(Uid).price) {
+                    ByUser.set(Uid, Entry);
+                }
+            }
+
+            const Owners = [...ByUser.values()].map(Entry => ({
+                userId:       String(Entry.seller.id),
+                username:     Entry.seller.name || String(Entry.seller.id),
+                userAssetIds: [Entry.userAssetId],
+            }));
+
             BT_OwnerCache[ItemId] = Owners;
-            Log('Found ' + Owners.length + ' owners', '#4db87a');
+            Log('Found ' + Owners.length + ' resellers to trade with', '#4db87a');
             return Owners;
         } catch (E) {
-            Log('Could not fetch owners: ' + E.message, '#e74c3c');
+            Log('Resellers API also failed: ' + E.message, '#e74c3c');
             return [];
         }
     }
