@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.4)
+//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.5)
 //  Exposes: window.PekoraPlus.BulkTrade
 //  Requires: pk-core.js, pk-toast.js, main script already loaded
 // ════════════════════════════════════════════════════════════════════════════
@@ -30,8 +30,8 @@
 
     function SetBtnState(Btn, State) {
         const M = {
-            idle:    { text: Btn.dataset.idleLabel || 'Send All Trades', bg: '#238636' },
-            running: { text: 'Running...', bg: '#444'    },
+            idle:    { text: Btn.dataset.idleLabel || 'Send All Trades', bg: '#1a7f37' },
+            running: { text: 'Running...', bg: '#333'    },
             done:    { text: 'Done',       bg: '#1a3d26' },
             error:   { text: 'Error',      bg: '#7a1a1a' },
         };
@@ -64,6 +64,8 @@
     const I_X      = ['M18 6L6 18','M6 6l12 12'];
     const I_SEARCH = ['M21 21l-4.35-4.35','M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'];
     const I_CHECK  = 'M20 6L9 17l-5-5';
+    const I_CANCEL = ['M18 6L6 18','M6 6l12 12'];
+    const I_PACK   = ['M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z'];
 
     // ── Kmap ───────────────────────────────────────────────────────────────
     // Resolution chain (with full debug output):
@@ -139,8 +141,9 @@
             let Page     = 0;
 
             do {
-                // Build URL - cursor param always present, empty string on first call
-                const Url = '/apisite/inventory/v1/users/' + Uid + '/assets/collectibles?sortOrder=Desc&limit=100&cursor=' + (Cursor ? encodeURIComponent(Cursor) : '');
+                // Omit cursor param entirely on first page — some APIs reject cursor= (empty string)
+                const CursorPart = (Cursor != null && Cursor !== '') ? '&cursor=' + encodeURIComponent(Cursor) : '';
+                const Url = '/apisite/inventory/v1/users/' + Uid + '/assets/collectibles?sortOrder=Desc&limit=100' + CursorPart;
                 const Resp = await fetch(Url, { credentials: 'include' });
                 if (!Resp.ok) throw new Error('Inventory HTTP ' + Resp.status);
                 const Json = await Resp.json();
@@ -156,7 +159,7 @@
                 Cursor = (Next != null && Next !== '') ? Next : null;
 
                 Log('Page ' + Page + ': ' + PageItems.length + ' items (total: ' + AllItems.length + ')' + (Cursor ? ' — more pages...' : ' — done.'));
-            } while (Cursor && Page < 20);
+            } while (Cursor && Page < 50);
 
             Log('Enriching with Koromons values...');
             const Kmap = await EnsureKmap(Log);
@@ -186,9 +189,13 @@
         }
         try {
             Log('Fetching owners for item ' + ItemId + '...');
-            let Cursor = '', All = [], Page = 0;
+            let Cursor = null;
+            let All    = [];
+            let Page   = 0;
             do {
-                const Url = '/apisite/inventory/v2/assets/' + ItemId + '/owners?cursor=' + encodeURIComponent(Cursor) + '&limit=50&sortOrder=Asc';
+                // Omit cursor param entirely on first page
+                const CursorPart = (Cursor != null && Cursor !== '') ? '&cursor=' + encodeURIComponent(Cursor) : '';
+                const Url = '/apisite/inventory/v2/assets/' + ItemId + '/owners?limit=100&sortOrder=Asc' + CursorPart;
                 const R = await fetch(Url, { credentials: 'include' });
                 if (!R.ok) throw new Error('HTTP ' + R.status);
                 const J = await R.json();
@@ -199,7 +206,7 @@
                 Cursor = (Next != null && Next !== '') ? Next : null;
                 Page++;
                 if (Cursor) Log('Page ' + Page + ': ' + All.length + ' owners so far...');
-            } while (Cursor && Page < 40); // 40 pages * 50 = 2000 max
+            } while (Cursor && Page < 100); // 100 pages * 100 = 10,000 max
 
             if (!All.length) { Log('No owners found.', '#f59e0b'); return []; }
 
@@ -268,62 +275,102 @@
         const Existing = document.getElementById('pk-bulktrade-panel');
         if (Existing) { Existing.remove(); return; }
 
+        // Inject scoped styles for the panel
+        const StyleEl = document.createElement('style');
+        StyleEl.id = 'pk-bt-styles';
+        StyleEl.textContent = `
+            #pk-bulktrade-panel * { box-sizing: border-box; font-family: 'Source Sans Pro', sans-serif; }
+            #pk-bulktrade-panel ::-webkit-scrollbar { width: 4px; height: 4px; }
+            #pk-bulktrade-panel ::-webkit-scrollbar-track { background: transparent; }
+            #pk-bulktrade-panel ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; }
+            #pk-bulktrade-panel ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.22); }
+            .pk-bt-btn { transition: opacity .12s, filter .12s; }
+            .pk-bt-btn:hover:not(:disabled) { filter: brightness(1.12); }
+            .pk-bt-btn:active:not(:disabled) { filter: brightness(0.9); }
+            .pk-bt-input:focus { border-color: rgba(255,255,255,.28) !important; box-shadow: 0 0 0 2px rgba(255,255,255,.06); }
+            .pk-bt-chip { transition: background .1s, border-color .1s; }
+            .pk-bt-chip:hover { background: #2d333b !important; border-color: rgba(255,255,255,.2) !important; }
+            .pk-bt-row:hover { background: rgba(255,255,255,.05) !important; }
+            .pk-drop-row { transition: background .08s; }
+            .pk-drop-row:hover { background: rgba(255,255,255,.07) !important; }
+            .pk-tab-btn { transition: color .12s, border-color .12s; }
+        `;
+        document.head.appendChild(StyleEl);
+
         const Overlay = El('div', {
-            position: 'fixed', inset: '0', background: 'rgba(0,0,0,.65)',
+            position: 'fixed', inset: '0', background: 'rgba(0,0,0,.72)',
             zIndex: '1000000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(2px)',
         });
         Overlay.id = 'pk-bulktrade-panel';
 
         const Panel = El('div', {
-            background: '#161b22', border: '1px solid rgba(255,255,255,.12)',
-            borderRadius: '10px', width: '700px', maxWidth: '96vw', maxHeight: '90vh',
+            background: '#0d1117', border: '1px solid rgba(255,255,255,.1)',
+            borderRadius: '12px', width: '720px', maxWidth: '96vw', maxHeight: '90vh',
             display: 'flex', flexDirection: 'column',
-            boxShadow: '0 8px 40px rgba(0,0,0,.8)', overflow: 'hidden',
+            boxShadow: '0 24px 64px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.04)', overflow: 'hidden',
         });
 
         // ── Header ────────────────────────────────────────────────────────
-        const Hdr  = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117', flexShrink: '0' });
+        const Hdr  = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#0d1117', flexShrink: '0' });
         const HdrL = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
-        HdrL.appendChild(Span('Pekora+',    { fontSize: '13px', fontWeight: '700', color: 'var(--primary-color,#8A5149)' }));
-        HdrL.appendChild(Span('Bulk Trade', { fontSize: '16px', fontWeight: '700', color: '#e6edf3' }));
-        const XBtn = El('button', { background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', color: '#8b949e', cursor: 'pointer', width: '28px', height: '28px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        const LogoWrap = El('div', { display: 'flex', alignItems: 'center', gap: '7px', padding: '4px 10px', background: 'rgba(138,81,73,.15)', borderRadius: '6px', border: '1px solid rgba(138,81,73,.3)' });
+        LogoWrap.appendChild(Span('Pekora+', { fontSize: '12px', fontWeight: '700', color: 'var(--primary-color,#8A5149)', letterSpacing: '.3px' }));
+        HdrL.appendChild(LogoWrap);
+        const Sep = El('div', { width: '1px', height: '18px', background: 'rgba(255,255,255,.1)' });
+        HdrL.appendChild(Sep);
+        HdrL.appendChild(Span('Bulk Trade', { fontSize: '17px', fontWeight: '700', color: '#e6edf3', letterSpacing: '-.3px' }));
+        const XBtn = El('button', { background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', color: '#8b949e', cursor: 'pointer', width: '30px', height: '30px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        XBtn.className = 'pk-bt-btn';
         XBtn.appendChild(Svg(I_X, '14'));
-        XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); });
+        XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); document.getElementById('pk-bt-styles')?.remove(); });
         Hdr.appendChild(HdrL); Hdr.appendChild(XBtn);
 
         // ── Tabs ──────────────────────────────────────────────────────────
-        const TabBar  = El('div', { display: 'flex', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117', flexShrink: '0' });
-        const TabDefs = [{ label: 'Blast', icon: I_BOLT }, { label: 'Cancel Trades', icon: I_X }];
+        const TabBar  = El('div', { display: 'flex', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#0d1117', flexShrink: '0', padding: '0 20px', gap: '4px' });
+        const TabDefs = [
+            { label: 'Blast Trade', icon: I_BOLT },
+            { label: 'Cancel Trades', icon: I_CANCEL },
+        ];
         const Pages   = [];
         const TabBtns = TabDefs.map((D, I) => {
-            const B = El('button', { padding: '10px 20px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: '7px', color: I === 0 ? '#e6edf3' : '#8b949e', borderBottom: I === 0 ? '2px solid #238636' : '2px solid transparent' });
+            const B = El('button', { padding: '10px 16px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', border: 'none', borderBottom: I === 0 ? '2px solid #2ea043' : '2px solid transparent', background: 'none', display: 'flex', alignItems: 'center', gap: '7px', color: I === 0 ? '#e6edf3' : '#555', marginBottom: '-1px' });
+            B.className = 'pk-tab-btn';
             B.appendChild(Svg(D.icon, '13')); B.appendChild(document.createTextNode(D.label));
             TabBar.appendChild(B); return B;
         });
 
-        const Content = El('div', { flex: '1', overflowY: 'auto', padding: '18px' });
+        const Content = El('div', { flex: '1', overflowY: 'auto', padding: '20px' });
 
-        const SecLbl = (T, Mt) => { const D = El('div', { fontSize: '11px', fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: '8px', marginTop: Mt || '0' }); D.textContent = T; return D; };
+        const SecLbl = (T, Mt) => {
+            const D = El('div', { fontSize: '10px', fontWeight: '700', color: '#3d4451', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px', marginTop: Mt || '0', display: 'flex', alignItems: 'center', gap: '8px' });
+            D.textContent = T;
+            const Line = El('div', { flex: '1', height: '1px', background: 'rgba(255,255,255,.05)' });
+            D.appendChild(Line);
+            return D;
+        };
 
         // ══════════════════════════════════════════════════════════════════
         //  PAGE 0 — BLAST
         // ══════════════════════════════════════════════════════════════════
         const BlastPage = El('div', {});
-        BlastPage.appendChild(SecLbl('1. Your Offer Items'));
+        BlastPage.appendChild(SecLbl('1 · Your Offer Items'));
 
-        const InvRow     = El('div', { display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'center' });
-        const LoadInvBtn = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer' });
-        LoadInvBtn.textContent = 'Load My Inventory';
-        const InvStatus = Span('', { fontSize: '12px', color: '#8b949e' });
+        const InvRow     = El('div', { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' });
+        const LoadInvBtn = El('button', { padding: '7px 16px', fontSize: '12px', fontWeight: '700', color: '#e6edf3', background: 'rgba(31,111,235,.2)', border: '1px solid rgba(56,139,253,.4)', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' });
+        LoadInvBtn.className = 'pk-bt-btn';
+        LoadInvBtn.appendChild(Svg(I_PACK, '12'));
+        LoadInvBtn.appendChild(document.createTextNode('Load Inventory'));
+        const InvStatus = Span('', { fontSize: '12px', color: '#555' });
         InvRow.appendChild(LoadInvBtn); InvRow.appendChild(InvStatus);
         BlastPage.appendChild(InvRow);
 
         // Inline log for inventory loading progress
-        const InvLog = El('div', { background: '#0d1117', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', fontFamily: 'monospace', color: '#555', minHeight: '18px', marginBottom: '6px', display: 'none' });
+        const InvLog = El('div', { background: '#060a0f', borderRadius: '5px', padding: '5px 10px', fontSize: '10px', fontFamily: 'monospace', color: '#555', minHeight: '18px', marginBottom: '8px', display: 'none', border: '1px solid rgba(255,255,255,.05)' });
         BlastPage.appendChild(InvLog);
 
-        const OfferGrid = El('div', { display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '48px', background: 'rgba(255,255,255,.03)', borderRadius: '5px', padding: '8px', border: '1px solid rgba(255,255,255,.07)' });
-        const OfferPH   = Span('Click "Load My Inventory" then select up to 4 items to offer', { fontSize: '11px', color: '#555' });
+        const OfferGrid = El('div', { display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '52px', background: 'rgba(255,255,255,.02)', borderRadius: '7px', padding: '10px', border: '1px solid rgba(255,255,255,.06)' });
+        const OfferPH   = Span('Load your inventory then select up to 4 items to offer', { fontSize: '11px', color: '#3d4451' });
         OfferGrid.appendChild(OfferPH);
         BlastPage.appendChild(OfferGrid);
 
@@ -336,12 +383,13 @@
             for (const UAId of SelOffer) {
                 const Item = InvItems.find(I => String(I.userAssetId) === String(UAId));
                 if (!Item) continue;
-                const Chip = El('div', { display: 'flex', alignItems: 'center', gap: '5px', background: '#21262d', border: '1px solid #30363d', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', color: '#e6edf3', cursor: 'pointer', userSelect: 'none' });
+                const Chip = El('div', { display: 'flex', alignItems: 'center', gap: '6px', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', color: '#e6edf3', cursor: 'pointer', userSelect: 'none' });
+                Chip.className = 'pk-bt-chip';
                 Chip.title = 'Click to remove';
-                const NS2 = El('span', {}); NS2.textContent = Item.name; NS2.style.cssText = 'max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                Chip.appendChild(NS2);
-                Chip.appendChild(Span(' · ' + (Item.value > 0 ? Fmt(Item.value) : 'RAP ' + Fmt(Item.rap)), { color: '#4db87a', fontWeight: '700' }));
-                const XI = Svg(I_X, '10'); XI.style.cssText = 'margin-left:3px;color:#8b949e;';
+                const NSpan = El('span', {}); NSpan.textContent = Item.name; NSpan.style.cssText = 'max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                Chip.appendChild(NSpan);
+                Chip.appendChild(Span(' · ' + (Item.value > 0 ? Fmt(Item.value) : 'RAP ' + Fmt(Item.rap)), { color: '#3fb950', fontWeight: '700', fontSize: '10px' }));
+                const XI = Svg(I_X, '9'); XI.style.cssText = 'margin-left:2px;color:#555;';
                 Chip.appendChild(XI);
                 Chip.addEventListener('click', () => { SelOffer.delete(String(UAId)); RefreshOfferGrid(); CalcRatio(); });
                 OfferGrid.appendChild(Chip);
@@ -350,20 +398,33 @@
 
         // ── Inventory picker ──────────────────────────────────────────────
         function OpenPicker() {
-            const Picker = El('div', { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.75)', zIndex: '1000001', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-            const Box    = El('div', { background: '#161b22', border: '1px solid rgba(255,255,255,.15)', borderRadius: '8px', width: '520px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,.9)' });
-            const PH2    = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117' });
-            PH2.appendChild(Span('Select Offer Items (max 4)', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' }));
-            const PC = El('button', { background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '4px', color: '#8b949e', cursor: 'pointer', width: '26px', height: '26px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+            const Picker = El('div', { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.8)', zIndex: '1000001', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)' });
+            const Box    = El('div', { background: '#0d1117', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', width: '520px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.95)' });
+            const PH2    = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#0d1117' });
+            PH2.appendChild(Span('Select Offer Items', { fontSize: '15px', fontWeight: '700', color: '#e6edf3' }));
+            PH2.appendChild(Span('max 4', { fontSize: '11px', color: '#555', marginLeft: '8px' }));
+            const PC = El('button', { background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', color: '#8b949e', cursor: 'pointer', width: '28px', height: '28px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' });
+            PC.className = 'pk-bt-btn';
             PC.appendChild(Svg(I_X, '13')); PC.addEventListener('click', () => Picker.remove());
             PH2.appendChild(PC); Box.appendChild(PH2);
-            const PS = El('input', { padding: '8px 12px', background: '#21262d', color: '#e6edf3', border: 'none', borderBottom: '1px solid rgba(255,255,255,.1)', fontSize: '12px', outline: 'none', width: '100%', boxSizing: 'border-box' });
-            PS.placeholder = 'Search items...'; Box.appendChild(PS);
+
+            // Search bar inside picker
+            const PSWrap = El('div', { position: 'relative', padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#060a0f' });
+            const PSIcon = El('div', { position: 'absolute', left: '24px', top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none', display: 'flex' });
+            PSIcon.appendChild(Svg(I_SEARCH, '13'));
+            const PS = El('input', { padding: '7px 10px 7px 32px', background: '#0d1117', color: '#e6edf3', border: '1px solid rgba(255,255,255,.08)', borderRadius: '6px', fontSize: '12px', outline: 'none', width: '100%' });
+            PS.className = 'pk-bt-input';
+            PS.placeholder = 'Search your items...';
+            PSWrap.appendChild(PSIcon); PSWrap.appendChild(PS); Box.appendChild(PSWrap);
+
             const PL = El('div', { flex: '1', overflowY: 'auto', padding: '8px' }); Box.appendChild(PL);
-            const PF = El('div', { padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px' });
-            const OkB = El('button', { padding: '6px 18px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#238636', border: '1px solid #2ea043', borderRadius: '5px', cursor: 'pointer' });
+
+            const PF = El('div', { padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,.07)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#060a0f' });
+            const OkB = El('button', { padding: '7px 20px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#1a7f37', border: '1px solid #2ea043', borderRadius: '6px', cursor: 'pointer' });
+            OkB.className = 'pk-bt-btn';
             OkB.textContent = 'Confirm'; OkB.addEventListener('click', () => { RefreshOfferGrid(); CalcRatio(); Picker.remove(); });
-            const CaB = El('button', { padding: '6px 14px', fontSize: '13px', color: '#8b949e', background: 'none', border: '1px solid rgba(255,255,255,.15)', borderRadius: '5px', cursor: 'pointer' });
+            const CaB = El('button', { padding: '7px 14px', fontSize: '13px', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', cursor: 'pointer' });
+            CaB.className = 'pk-bt-btn';
             CaB.textContent = 'Cancel'; CaB.addEventListener('click', () => Picker.remove());
             PF.appendChild(CaB); PF.appendChild(OkB); Box.appendChild(PF);
 
@@ -373,20 +434,26 @@
                 if (!Fil.length) { PL.appendChild(Span('No items found.', { fontSize: '12px', color: '#555', padding: '12px', display: 'block' })); return; }
                 Fil.forEach(I => {
                     const Sel = SelOffer.has(String(I.userAssetId));
-                    const Row = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(35,134,54,.2)' : 'transparent', border: '1px solid ' + (Sel ? '#238636' : 'transparent'), marginBottom: '3px' });
-                    const Lft = El('div', { display: 'flex', flexDirection: 'column', gap: '1px' });
+                    const Row = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', borderRadius: '6px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(46,160,67,.12)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(46,160,67,.3)' : 'transparent'), marginBottom: '2px' });
+                    Row.className = 'pk-bt-row';
+                    const Lft = El('div', { display: 'flex', flexDirection: 'column', gap: '2px' });
                     Lft.appendChild(Span(I.name, { fontSize: '12px', color: '#e6edf3', fontWeight: '500' }));
-                    Lft.appendChild(Span(I.value > 0 ? 'Val: ' + Fmt(I.value) + '  RAP: ' + Fmt(I.rap) : 'RAP: ' + Fmt(I.rap), { fontSize: '10px', color: '#8b949e' }));
-                    const CkW = El('div', { width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2ea043' });
-                    if (Sel) CkW.appendChild(Svg(I_CHECK, '14'));
+                    Lft.appendChild(Span(I.value > 0 ? 'Val: ' + Fmt(I.value) + '  RAP: ' + Fmt(I.rap) : 'RAP: ' + Fmt(I.rap), { fontSize: '10px', color: '#555' }));
+                    const CkW = El('div', { width: '18px', height: '18px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: Sel ? 'rgba(46,160,67,.25)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(46,160,67,.5)' : 'rgba(255,255,255,.1)'), flexShrink: '0' });
+                    if (Sel) { const Ck = Svg(I_CHECK, '11'); Ck.style.color = '#3fb950'; CkW.appendChild(Ck); }
                     Row.appendChild(Lft); Row.appendChild(CkW);
                     Row.addEventListener('click', () => {
                         const K = String(I.userAssetId);
-                        if (SelOffer.has(K)) { SelOffer.delete(K); Row.style.background = 'transparent'; Row.style.border = '1px solid transparent'; CkW.innerHTML = ''; }
-                        else {
+                        if (SelOffer.has(K)) {
+                            SelOffer.delete(K);
+                            Row.style.background = 'transparent'; Row.style.border = '1px solid transparent';
+                            CkW.innerHTML = ''; CkW.style.background = 'transparent'; CkW.style.border = '1px solid rgba(255,255,255,.1)';
+                        } else {
                             if (SelOffer.size >= 4) { Toast('Max 4 offer items', 'warn'); return; }
-                            SelOffer.add(K); Row.style.background = 'rgba(35,134,54,.2)'; Row.style.border = '1px solid #238636';
-                            CkW.innerHTML = ''; const Ck = Svg(I_CHECK, '14'); Ck.style.color = '#2ea043'; CkW.appendChild(Ck);
+                            SelOffer.add(K);
+                            Row.style.background = 'rgba(46,160,67,.12)'; Row.style.border = '1px solid rgba(46,160,67,.3)';
+                            CkW.innerHTML = ''; CkW.style.background = 'rgba(46,160,67,.25)'; CkW.style.border = '1px solid rgba(46,160,67,.5)';
+                            const Ck = Svg(I_CHECK, '11'); Ck.style.color = '#3fb950'; CkW.appendChild(Ck);
                         }
                     });
                     PL.appendChild(Row);
@@ -398,7 +465,7 @@
         }
 
         LoadInvBtn.addEventListener('click', async () => {
-            LoadInvBtn.disabled = true; LoadInvBtn.textContent = 'Loading...';
+            LoadInvBtn.disabled = true; LoadInvBtn.lastChild.textContent = ' Loading...';
             InvStatus.textContent = ''; InvLog.style.display = 'block'; InvLog.textContent = '';
             const TmpLog = (T, C) => {
                 InvLog.textContent = T;
@@ -406,31 +473,38 @@
             };
             InvItems = await LoadInventory(TmpLog);
             InvLog.style.display = 'none';
-            InvStatus.textContent = InvItems.length + ' items loaded';
-            InvStatus.style.color = InvItems.length > 0 ? '#4db87a' : '#e74c3c';
-            LoadInvBtn.textContent = 'Reload Inventory'; LoadInvBtn.disabled = false;
+            InvStatus.textContent = InvItems.length + ' items';
+            InvStatus.style.color = InvItems.length > 0 ? '#3fb950' : '#e74c3c';
+            LoadInvBtn.lastChild.textContent = ' Reload';
+            LoadInvBtn.disabled = false;
             if (InvItems.length) OpenPicker();
         });
 
         // ── 2. Target item — live search with dropdown ───────────────────────
-        BlastPage.appendChild(SecLbl('2. Target Item', '14px'));
+        BlastPage.appendChild(SecLbl('2 · Target Item', '16px'));
 
         // Wrapper for input + dropdown, positioned relative so dropdown anchors to it
-        const TgtWrap = El('div', { position: 'relative', marginBottom: '6px' });
-        const TgtInp  = El('input', { width: '100%', boxSizing: 'border-box', padding: '6px 12px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '13px', outline: 'none' });
+        const TgtWrap = El('div', { position: 'relative', marginBottom: '8px' });
+        const TgtInpWrap = El('div', { position: 'relative', display: 'flex', alignItems: 'center' });
+        const TgtIcon = El('div', { position: 'absolute', left: '11px', color: '#555', display: 'flex', pointerEvents: 'none', zIndex: '1' });
+        TgtIcon.appendChild(Svg(I_SEARCH, '13'));
+        const TgtInp  = El('input', { width: '100%', boxSizing: 'border-box', padding: '8px 12px 8px 34px', background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '7px', fontSize: '13px', outline: 'none' });
+        TgtInp.className = 'pk-bt-input';
         TgtInp.placeholder = 'Type item name or paste ID...';
-        TgtWrap.appendChild(TgtInp);
+        TgtInpWrap.appendChild(TgtIcon); TgtInpWrap.appendChild(TgtInp);
+        TgtWrap.appendChild(TgtInpWrap);
 
-        // Dropdown list
+        // Dropdown list — scrollable, shows all matches
         const TgtDrop = El('div', {
-            position: 'absolute', top: '100%', left: '0', right: '0', zIndex: '9999',
-            background: '#1c2128', border: '1px solid rgba(255,255,255,.15)', borderTop: 'none',
-            borderRadius: '0 0 5px 5px', maxHeight: '200px', overflowY: 'auto', display: 'none',
+            position: 'absolute', top: 'calc(100% + 4px)', left: '0', right: '0', zIndex: '9999',
+            background: '#161b22', border: '1px solid rgba(255,255,255,.12)',
+            borderRadius: '8px', maxHeight: '260px', overflowY: 'auto', display: 'none',
+            boxShadow: '0 12px 32px rgba(0,0,0,.7)',
         });
         TgtWrap.appendChild(TgtDrop);
         BlastPage.appendChild(TgtWrap);
 
-        const TgtInfo = El('div', { minHeight: '36px', marginBottom: '10px' });
+        const TgtInfo = El('div', { minHeight: '40px', marginBottom: '12px' });
         BlastPage.appendChild(TgtInfo);
 
         let TgtId      = null;
@@ -452,12 +526,13 @@
             const KV = K.Value  || K.value  || 0;
             const KR = K.RAP    || K.rap    || 0;
             const KD = K.Demand || K.demand || '';
-            const Row = El('div', { display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '8px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap' });
-            Row.appendChild(Span(TgtName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
-            if (KV > 0) Row.appendChild(Span('Val: '    + Fmt(KV), { fontSize: '11px', color: '#4db87a', fontWeight: '600' }));
-            if (KR > 0) Row.appendChild(Span('RAP: '    + Fmt(KR), { fontSize: '11px', color: '#4a9fd4', fontWeight: '600' }));
-            if (KD && KD !== 'None') Row.appendChild(Span('Demand: ' + KD, { fontSize: '11px', color: '#c9a84c' }));
-            Row.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#555' }));
+            const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,.03)', borderRadius: '7px', padding: '10px 12px', border: '1px solid rgba(255,255,255,.07)', flexWrap: 'wrap' });
+            const NameSpan = Span(TgtName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' });
+            Row.appendChild(NameSpan);
+            if (KV > 0) Row.appendChild(Span('Val: ' + Fmt(KV), { fontSize: '11px', color: '#3fb950', fontWeight: '700', padding: '2px 7px', background: 'rgba(63,185,80,.1)', borderRadius: '4px', border: '1px solid rgba(63,185,80,.2)' }));
+            if (KR > 0) Row.appendChild(Span('RAP: ' + Fmt(KR), { fontSize: '11px', color: '#58a6ff', fontWeight: '600', padding: '2px 7px', background: 'rgba(88,166,255,.08)', borderRadius: '4px', border: '1px solid rgba(88,166,255,.15)' }));
+            if (KD && KD !== 'None') Row.appendChild(Span(KD, { fontSize: '11px', color: '#e3b341', padding: '2px 7px', background: 'rgba(227,179,65,.08)', borderRadius: '4px', border: '1px solid rgba(227,179,65,.15)' }));
+            Row.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#3d4451' }));
             TgtInfo.appendChild(Row);
             CalcRatio();
         }
@@ -471,23 +546,21 @@
                 const KR = K.RAP   || K.rap   || 0;
                 const Row = El('div', {
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '6px 12px', cursor: 'pointer', fontSize: '12px',
-                    borderBottom: '1px solid rgba(255,255,255,.06)',
+                    padding: '8px 14px', cursor: 'pointer', fontSize: '12px',
+                    borderBottom: '1px solid rgba(255,255,255,.04)',
                 });
-                Row.style.transition = 'background .1s';
-                Row.addEventListener('mouseenter', () => { Row.style.background = 'rgba(255,255,255,.07)'; });
-                Row.addEventListener('mouseleave', () => { Row.style.background = ''; });
+                Row.className = 'pk-drop-row';
 
-                const Left = El('div', { display: 'flex', flexDirection: 'column', gap: '1px', overflow: 'hidden' });
-                const NameSpan = El('span', {}); NameSpan.style.cssText = 'color:#e6edf3;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                const Left = El('div', { display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden', flex: '1' });
+                const NameSpan = El('span', {}); NameSpan.style.cssText = 'color:#e6edf3;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;';
                 NameSpan.textContent = K.Name || K.name || ('Item ' + Id);
-                const SubSpan = El('span', {}); SubSpan.style.cssText = 'font-size:10px;color:#555;';
+                const SubSpan = El('span', {}); SubSpan.style.cssText = 'font-size:10px;color:#3d4451;';
                 SubSpan.textContent = 'ID: ' + Id + (K.Acronym || K.acronym ? '  · ' + (K.Acronym || K.acronym) : '');
                 Left.appendChild(NameSpan); Left.appendChild(SubSpan);
 
-                const Right = El('div', { display: 'flex', gap: '8px', alignItems: 'center', flexShrink: '0', marginLeft: '8px' });
-                if (KV > 0) { const V = El('span', {}); V.style.cssText = 'font-size:10px;color:#4db87a;font-weight:600;'; V.textContent = Fmt(KV); Right.appendChild(V); }
-                if (KR > 0) { const R2 = El('span', {}); R2.style.cssText = 'font-size:10px;color:#4a9fd4;'; R2.textContent = 'RAP ' + Fmt(KR); Right.appendChild(R2); }
+                const Right = El('div', { display: 'flex', gap: '6px', alignItems: 'center', flexShrink: '0', marginLeft: '10px' });
+                if (KV > 0) { const V = El('span', {}); V.style.cssText = 'font-size:10px;color:#3fb950;font-weight:700;padding:1px 5px;background:rgba(63,185,80,.1);border-radius:3px;'; V.textContent = Fmt(KV); Right.appendChild(V); }
+                if (KR > 0) { const R2 = El('span', {}); R2.style.cssText = 'font-size:10px;color:#58a6ff;padding:1px 5px;background:rgba(88,166,255,.08);border-radius:3px;'; R2.textContent = Fmt(KR); Right.appendChild(R2); }
 
                 Row.appendChild(Left); Row.appendChild(Right);
                 Row.addEventListener('mousedown', (Ev) => {
@@ -514,25 +587,27 @@
 
             // Direct ID match
             if (/^\d+$/.test(Q) && DropKmap[Q]) {
-                Matches.push([Q, DropKmap[Q]]);
-            } else {
-                // Score and collect up to 10 matches
-                for (const [Id, Item] of Object.entries(DropKmap)) {
-                    const Name    = (Item.Name    || Item.name    || '').toLowerCase();
-                    const Acronym = (Item.Acronym || Item.acronym || '').toLowerCase();
-                    let Score = 0;
-                    if (Acronym && Acronym === QL)       Score = 4;
-                    else if (Name === QL)                Score = 3;
-                    else if (Name.startsWith(QL))        Score = 2;
-                    else if (Name.includes(QL))          Score = 1;
-                    if (Score > 0) Matches.push([Id, Item, Score]);
-                    if (Matches.length >= 200) break; // cap scan for perf
-                }
-                Matches.sort((A, B) => B[2] - A[2]);
-                Matches.splice(10); // show top 10
+                Matches.push([Q, DropKmap[Q], 99]);
             }
 
-            RenderDropdown(Matches.map(M => [M[0], M[1]]), DropKmap);
+            // Score and collect all matches — no hard cap on scan, show up to 30 results
+            for (const [Id, Item] of Object.entries(DropKmap)) {
+                if (/^\d+$/.test(Q) && Id === Q) continue; // already added above
+                const Name    = (Item.Name    || Item.name    || '').toLowerCase();
+                const Acronym = (Item.Acronym || Item.acronym || '').toLowerCase();
+                let Score = 0;
+                if (Acronym && Acronym === QL)       Score = 4;
+                else if (Name === QL)                Score = 3;
+                else if (Name.startsWith(QL))        Score = 2;
+                else if (Name.includes(QL))          Score = 1;
+                if (Score > 0) Matches.push([Id, Item, Score]);
+            }
+
+            // Sort by score descending, show up to 30 so the user can scroll and pick
+            Matches.sort((A, B) => B[2] - A[2]);
+            const Top = Matches.slice(0, 30);
+
+            RenderDropdown(Top.map(M => [M[0], M[1]]), DropKmap);
         }
 
         TgtInp.addEventListener('input', () => {
@@ -557,15 +632,27 @@
         }, { capture: false });
 
         TgtInp.addEventListener('focus', () => {
-            if (TgtInp.value.trim().length >= 2) UpdateDropdown(TgtInp.value.trim());
+            if (TgtInp.value.trim().length >= 2 && !TgtId) UpdateDropdown(TgtInp.value.trim());
         });
 
         // ── Ratio bar ─────────────────────────────────────────────────────
-        const RBar = El('div', { display: 'flex', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '6px 12px', marginBottom: '10px', fontSize: '12px', color: '#8b949e', flexWrap: 'wrap' });
-        const RO   = Span('Offer: 0', {});
-        const RR   = Span('Requesting: 0', {});
-        const RV   = Span('Ratio: —', { fontWeight: '700' });
-        RBar.appendChild(RO); RBar.appendChild(RR); RBar.appendChild(RV);
+        const RBar = El('div', { display: 'flex', gap: '0', background: 'rgba(255,255,255,.03)', borderRadius: '7px', marginBottom: '14px', fontSize: '12px', color: '#8b949e', overflow: 'hidden', border: '1px solid rgba(255,255,255,.06)' });
+
+        const RCell = (Label, ValSpan) => {
+            const D = El('div', { display: 'flex', flexDirection: 'column', alignItems: 'center', flex: '1', padding: '8px 12px', borderRight: '1px solid rgba(255,255,255,.05)' });
+            D.appendChild(Span(Label, { fontSize: '9px', color: '#3d4451', textTransform: 'uppercase', letterSpacing: '.7px', fontWeight: '700' }));
+            D.appendChild(ValSpan);
+            return D;
+        };
+
+        const RO  = Span('—', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' });
+        const RR  = Span('—', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' });
+        const RV  = Span('—', { fontSize: '14px', fontWeight: '700', color: '#555' });
+        RBar.appendChild(RCell('Offering', RO));
+        RBar.appendChild(RCell('Requesting', RR));
+        const RatioCell = RCell('Ratio', RV);
+        RatioCell.style.borderRight = 'none';
+        RBar.appendChild(RatioCell);
         BlastPage.appendChild(RBar);
 
         function CalcRatio() {
@@ -578,25 +665,29 @@
             const TK    = TgtId ? (Kmap[TgtId] || {}) : {};
             const RVal  = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
             const Ratio = (RVal > 0 && OTotal > 0) ? (OTotal / RVal).toFixed(2) : '—';
-            const RC    = Ratio !== '—' ? (parseFloat(Ratio) >= 1 ? '#4db87a' : parseFloat(Ratio) >= 0.7 ? '#f59e0b' : '#e74c3c') : '#8b949e';
-            RO.textContent = 'Offer: '         + Fmt(OTotal);
-            RR.textContent = ' · Requesting: ' + Fmt(RVal);
-            RV.textContent = ' · Ratio: '      + Ratio + 'x';
+            const RC    = Ratio !== '—' ? (parseFloat(Ratio) >= 1 ? '#3fb950' : parseFloat(Ratio) >= 0.7 ? '#e3b341' : '#f85149') : '#555';
+            RO.textContent = OTotal > 0 ? Fmt(OTotal) : '—';
+            RR.textContent = RVal  > 0 ? Fmt(RVal)  : '—';
+            RV.textContent = Ratio !== '—' ? Ratio + 'x' : '—';
             RV.style.color = RC;
         }
 
         // ── 3. Options ────────────────────────────────────────────────────
-        BlastPage.appendChild(SecLbl('3. Options', '2px'));
-        const OG   = El('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px', marginBottom: '12px' });
+        BlastPage.appendChild(SecLbl('3 · Options', '2px'));
+        const OG   = El('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 28px', marginBottom: '14px' });
         const Opts = { delaySec: 5, maxUsers: 50, minRatio: 0, skipDupUid: true, skipPending: false, multiItems: false };
 
         function NumRow(Lbl, Gv, Sv, Min, Max, Step) {
-            const Wr = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
-            Wr.appendChild(Span(Lbl, { fontSize: '11px', color: '#8b949e' }));
+            const Wr = El('div', { display: 'flex', flexDirection: 'column', gap: '5px' });
+            Wr.appendChild(Span(Lbl, { fontSize: '11px', color: '#555', fontWeight: '600' }));
             const Cr = El('div', { display: 'flex', alignItems: 'center', gap: '6px' });
-            const MkB = T => { const B = El('button', { width: '24px', height: '24px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '15px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.textContent = T; return B; };
+            const MkB = T => {
+                const B = El('button', { width: '26px', height: '26px', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', color: '#e6edf3', cursor: 'pointer', fontSize: '15px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' });
+                B.className = 'pk-bt-btn';
+                B.textContent = T; return B;
+            };
             const Mn = MkB('−'), Pl = MkB('+');
-            const Dp = El('span', { minWidth: '36px', textAlign: 'center', fontSize: '13px', fontWeight: '700', color: '#e6edf3' }); Dp.textContent = Gv();
+            const Dp = El('span', { minWidth: '40px', textAlign: 'center', fontSize: '14px', fontWeight: '700', color: '#e6edf3', background: '#0d1117', border: '1px solid rgba(255,255,255,.07)', borderRadius: '5px', padding: '3px 6px' }); Dp.textContent = Gv();
             Mn.addEventListener('click', () => { const V = Math.max(Min, Gv() - Step); Sv(V); Dp.textContent = V; });
             Pl.addEventListener('click',  () => { const V = Math.min(Max, Gv() + Step); Sv(V); Dp.textContent = V; });
             Cr.appendChild(Mn); Cr.appendChild(Dp); Cr.appendChild(Pl); Wr.appendChild(Cr); return Wr;
@@ -604,46 +695,52 @@
 
         function ChkRow(Lbl, Gv, Sv) {
             const Wr  = El('div', { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' });
-            const Box = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: Gv() ? '#238636' : '#21262d', border: '1px solid ' + (Gv() ? '#2ea043' : 'rgba(255,255,255,.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
-            if (Gv()) { const C = Svg(I_CHECK, '11'); C.style.color = '#fff'; Box.appendChild(C); }
+            const Box = El('div', { width: '17px', height: '17px', borderRadius: '4px', flexShrink: '0', background: Gv() ? 'rgba(46,160,67,.25)' : 'rgba(255,255,255,.04)', border: '1px solid ' + (Gv() ? 'rgba(46,160,67,.5)' : 'rgba(255,255,255,.12)'), display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .12s, border-color .12s' });
+            if (Gv()) { const C = Svg(I_CHECK, '11'); C.style.color = '#3fb950'; Box.appendChild(C); }
             Box.addEventListener('click', () => {
                 const V = !Gv(); Sv(V);
-                Box.style.background = V ? '#238636' : '#21262d';
-                Box.style.border     = '1px solid ' + (V ? '#2ea043' : 'rgba(255,255,255,.2)');
+                Box.style.background = V ? 'rgba(46,160,67,.25)' : 'rgba(255,255,255,.04)';
+                Box.style.border     = '1px solid ' + (V ? 'rgba(46,160,67,.5)' : 'rgba(255,255,255,.12)');
                 Box.innerHTML = '';
-                if (V) { const C = Svg(I_CHECK, '11'); C.style.color = '#fff'; Box.appendChild(C); }
+                if (V) { const C = Svg(I_CHECK, '11'); C.style.color = '#3fb950'; Box.appendChild(C); }
             });
-            Wr.appendChild(Box); Wr.appendChild(Span(Lbl, { fontSize: '12px', color: '#ccc' })); return Wr;
+            Wr.appendChild(Box); Wr.appendChild(Span(Lbl, { fontSize: '12px', color: '#8b949e' })); return Wr;
         }
 
-        const MRW = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
-        MRW.appendChild(Span('Min ratio (0 = off)', { fontSize: '11px', color: '#8b949e' }));
-        const MRI = El('input', { background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', padding: '4px 8px', fontSize: '13px', width: '80px', outline: 'none', type: 'number', min: '0', step: '0.1' });
+        const MRW = El('div', { display: 'flex', flexDirection: 'column', gap: '5px' });
+        MRW.appendChild(Span('Min ratio (0 = off)', { fontSize: '11px', color: '#555', fontWeight: '600' }));
+        const MRI = El('input', { background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', padding: '5px 9px', fontSize: '13px', fontWeight: '700', width: '80px', outline: 'none', type: 'number', min: '0', step: '0.1' });
+        MRI.className = 'pk-bt-input';
         MRI.value = '0'; MRI.addEventListener('input', () => { Opts.minRatio = parseFloat(MRI.value) || 0; }); MRW.appendChild(MRI);
 
-        OG.appendChild(NumRow('Delay (s)',   () => Opts.delaySec, V => { Opts.delaySec = V; }, 1, 30, 1));
-        OG.appendChild(NumRow('Max users',   () => Opts.maxUsers, V => { Opts.maxUsers = V; }, 1, 200, 10));
+        OG.appendChild(NumRow('Delay (seconds)',   () => Opts.delaySec, V => { Opts.delaySec = V; }, 1, 30, 1));
+        OG.appendChild(NumRow('Max users',         () => Opts.maxUsers, V => { Opts.maxUsers = V; }, 1, 200, 10));
         OG.appendChild(MRW); OG.appendChild(El('div', {}));
         OG.appendChild(ChkRow('Skip duplicate UIDs',              () => Opts.skipDupUid,  V => { Opts.skipDupUid  = V; }));
         OG.appendChild(ChkRow('Skip users with pending trade',    () => Opts.skipPending, V => { Opts.skipPending = V; }));
-        OG.appendChild(ChkRow('Request multiple items (up to 4)', () => Opts.multiItems,  V => { Opts.multiItems  = V; }));
+        OG.appendChild(ChkRow('Request multiple copies (up to 4)', () => Opts.multiItems, V => { Opts.multiItems  = V; }));
         BlastPage.appendChild(OG);
 
         // ── Log box ───────────────────────────────────────────────────────
-        const LogBox = El('div', { background: '#0d1117', borderRadius: '5px', padding: '8px 10px', height: '130px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
+        const LogBox = El('div', { background: '#060a0f', borderRadius: '7px', padding: '10px 12px', height: '140px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '12px' });
         BlastPage.appendChild(LogBox);
         const Log = (T, C) => LogLine(LogBox, T, C);
 
         // ── Footer ────────────────────────────────────────────────────────
         const BF      = El('div', { display: 'flex', gap: '8px', alignItems: 'center' });
-        const SendBtn = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#238636', border: '1px solid #2ea043', borderRadius: '6px', cursor: 'pointer' });
+        const SendBtn = El('button', { flex: '1', padding: '10px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#1a7f37', border: '1px solid #2ea043', borderRadius: '7px', cursor: 'pointer' });
+        SendBtn.className = 'pk-bt-btn';
         SendBtn.textContent = 'Send All Trades'; SendBtn.dataset.idleLabel = 'Send All Trades';
-        const StopBtn = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' }); StopBtn.textContent = 'Stop';
-        const CsvBtn  = El('button', { padding: '9px 12px', fontSize: '12px', fontWeight: '600', color: '#8b949e', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '6px', cursor: 'pointer' }); CsvBtn.textContent = 'CSV';
+        const StopBtn = El('button', { padding: '10px 18px', fontSize: '13px', fontWeight: '700', color: '#fff', background: 'rgba(248,81,73,.15)', border: '1px solid rgba(248,81,73,.4)', borderRadius: '7px', cursor: 'pointer' });
+        StopBtn.className = 'pk-bt-btn';
+        StopBtn.textContent = 'Stop';
+        const CsvBtn  = El('button', { padding: '10px 14px', fontSize: '12px', fontWeight: '600', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '7px', cursor: 'pointer' });
+        CsvBtn.className = 'pk-bt-btn';
+        CsvBtn.textContent = 'CSV';
 
         let TradeLog = [];
         CsvBtn.addEventListener('click',  () => { if (!TradeLog.length) { Toast('No trades to export', 'warn'); return; } ExportCsv(TradeLog); });
-        StopBtn.addEventListener('click', () => { BT_Abort = true; Log('Stopped by user.', '#e74c3c'); SetBtnState(SendBtn, 'idle'); BT_Running = false; });
+        StopBtn.addEventListener('click', () => { BT_Abort = true; Log('Stopped by user.', '#f85149'); SetBtnState(SendBtn, 'idle'); BT_Running = false; });
 
         SendBtn.addEventListener('click', async () => {
             if (BT_Running) return;
@@ -657,12 +754,12 @@
             const OfferVal = MyUAIds.reduce((S, UAId) => { const I = InvItems.find(X => X.userAssetId === UAId); return S + (I ? (I.value > 0 ? I.value : I.rap) : 0); }, 0);
 
             Log('Target: ' + TgtName + ' (ID ' + TgtId + ')');
-            Log('Fetching resellers...');
+            Log('Fetching owners...');
             const Owners = await FetchOwners(TgtId, Log);
-            if (!Owners.length) { Log('No owners found.', '#e74c3c'); SetBtnState(SendBtn, 'error'); BT_Running = false; return; }
+            if (!Owners.length) { Log('No owners found.', '#f85149'); SetBtnState(SendBtn, 'error'); BT_Running = false; return; }
 
             const Capped = Owners.slice(0, Opts.maxUsers);
-            Log('Sending to ' + Capped.length + ' owners, ' + Opts.delaySec + 's delay', '#4a9fd4');
+            Log('Sending to ' + Capped.length + ' owners, ' + Opts.delaySec + 's delay', '#58a6ff');
 
             let Sent = 0, Skipped = 0, Failed = 0;
             const SeenUids = new Set();
@@ -674,25 +771,26 @@
                     const TK = Kmap[TgtId] || {};
                     const RV2 = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
                     const R2  = RV2 > 0 ? OfferVal / RV2 : 0;
-                    if (R2 < Opts.minRatio) { Log('Skip ' + Owner.username + ' ratio ' + R2.toFixed(2) + 'x', '#555'); Skipped++; continue; }
+                    if (R2 < Opts.minRatio) { Log('Skip ' + Owner.username + ' ratio ' + R2.toFixed(2) + 'x', '#3d4451'); Skipped++; continue; }
                 }
-                if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup ' + Owner.username, '#555'); Skipped++; continue; }
+                if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup ' + Owner.username, '#3d4451'); Skipped++; continue; }
                 SeenUids.add(Owner.userId);
+                // Request multiple copies if the owner has more than one and multiItems is on
                 const TheirUAIds = Opts.multiItems ? Owner.userAssetIds.slice(0, 4) : [Owner.userAssetIds[0]];
                 try {
                     await SendTrade(MyUAIds, Owner.userId, TheirUAIds);
-                    Log('Sent to ' + Owner.username + ' (' + Owner.userId + ')', '#4db87a');
+                    Log('Sent to ' + Owner.username + ' (' + Owner.userId + ')' + (TheirUAIds.length > 1 ? ' [x' + TheirUAIds.length + ']' : ''), '#3fb950');
                     TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Sent', detail: Owner.username });
                     Sent++;
                 } catch (E) {
-                    Log('Failed ' + Owner.username + ': ' + E.message, '#e74c3c');
+                    Log('Failed ' + Owner.username + ': ' + E.message, '#f85149');
                     TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Failed', detail: E.message });
                     Failed++;
                 }
-                if (!BT_Abort && Idx < Capped.length - 1) { Log('Waiting ' + Opts.delaySec + 's...', '#555'); await Sleep(Opts.delaySec * 1000); }
+                if (!BT_Abort && Idx < Capped.length - 1) { Log('Waiting ' + Opts.delaySec + 's...', '#3d4451'); await Sleep(Opts.delaySec * 1000); }
             }
             const Summ = 'Done — Sent: ' + Sent + '  Skipped: ' + Skipped + '  Failed: ' + Failed;
-            Log(Summ, '#4db87a'); Toast(Summ, 'success');
+            Log(Summ, '#3fb950'); Toast(Summ, 'success');
             SetBtnState(SendBtn, 'done'); BT_Running = false;
         });
 
@@ -705,28 +803,39 @@
         const CancelPage = El('div', { display: 'none' });
         CancelPage.appendChild(SecLbl('Outbound Trades'));
 
-        const CTR    = El('div', { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' });
-        const LTBtn  = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer' }); LTBtn.textContent = 'Load Trades';
-        const CFInp  = El('input', { flex: '1', minWidth: '120px', padding: '5px 10px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '12px', outline: 'none' }); CFInp.placeholder = 'Filter by username...';
-        const AR     = El('div', { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#8b949e' });
+        const CTR    = El('div', { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' });
+        const LTBtn  = El('button', { padding: '7px 16px', fontSize: '12px', fontWeight: '700', color: '#e6edf3', background: 'rgba(31,111,235,.2)', border: '1px solid rgba(56,139,253,.4)', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' });
+        LTBtn.className = 'pk-bt-btn';
+        LTBtn.appendChild(Svg(I_PACK, '12'));
+        LTBtn.appendChild(document.createTextNode(' Load Trades'));
+
+        const CFInpWrap = El('div', { position: 'relative', flex: '1', minWidth: '120px', display: 'flex', alignItems: 'center' });
+        const CFIcon = El('div', { position: 'absolute', left: '9px', color: '#555', display: 'flex', pointerEvents: 'none' });
+        CFIcon.appendChild(Svg(I_SEARCH, '12'));
+        const CFInp  = El('input', { width: '100%', padding: '6px 10px 6px 28px', background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', fontSize: '12px', outline: 'none' });
+        CFInp.className = 'pk-bt-input';
+        CFInp.placeholder = 'Filter by username...';
+        CFInpWrap.appendChild(CFIcon); CFInpWrap.appendChild(CFInp);
+
+        const AR     = El('div', { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#555', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', padding: '4px 10px' });
         let CAgeDays = 7;
-        const MkAB   = T => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = T; return B; };
+        const MkAB   = T => { const B = El('button', { width: '20px', height: '20px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '3px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.className = 'pk-bt-btn'; B.textContent = T; return B; };
         const AMn    = MkAB('−'), APl = MkAB('+');
-        const AD     = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' }); AD.textContent = '7d';
+        const AD     = El('span', { fontSize: '12px', fontWeight: '700', color: '#e6edf3', minWidth: '24px', textAlign: 'center' }); AD.textContent = '7d';
         AMn.addEventListener('click', () => { CAgeDays = Math.max(1,  CAgeDays - 1); AD.textContent = CAgeDays + 'd'; });
         APl.addEventListener('click',  () => { CAgeDays = Math.min(60, CAgeDays + 1); AD.textContent = CAgeDays + 'd'; });
-        AR.appendChild(Span('Cancel > ')); AR.appendChild(AMn); AR.appendChild(AD); AR.appendChild(APl); AR.appendChild(Span(' days'));
-        CTR.appendChild(LTBtn); CTR.appendChild(CFInp); CTR.appendChild(AR);
+        AR.appendChild(Span('Older than', { fontSize: '11px' })); AR.appendChild(AMn); AR.appendChild(AD); AR.appendChild(APl);
+        CTR.appendChild(LTBtn); CTR.appendChild(CFInpWrap); CTR.appendChild(AR);
         CancelPage.appendChild(CTR);
 
-        const SR   = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' });
-        const SBox = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: '#238636', border: '1px solid #2ea043', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-        const SCk  = Svg(I_CHECK, '11'); SCk.style.color = '#fff'; SBox.appendChild(SCk);
-        const SCnt = Span('', { fontSize: '11px', color: '#8b949e', marginLeft: 'auto' });
-        SR.appendChild(SBox); SR.appendChild(Span('Select all', { fontSize: '12px', color: '#ccc' })); SR.appendChild(SCnt);
+        const SR   = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', cursor: 'pointer', userSelect: 'none' });
+        const SBox = El('div', { width: '17px', height: '17px', borderRadius: '4px', flexShrink: '0', background: 'rgba(46,160,67,.25)', border: '1px solid rgba(46,160,67,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        const SCk  = Svg(I_CHECK, '11'); SCk.style.color = '#3fb950'; SBox.appendChild(SCk);
+        const SCnt = Span('', { fontSize: '11px', color: '#555', marginLeft: 'auto' });
+        SR.appendChild(SBox); SR.appendChild(Span('Select all', { fontSize: '12px', color: '#8b949e' })); SR.appendChild(SCnt);
         CancelPage.appendChild(SR);
 
-        const TList   = El('div', { height: '160px', overflowY: 'auto', background: '#0d1117', borderRadius: '5px', padding: '4px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
+        const TList   = El('div', { height: '170px', overflowY: 'auto', background: '#060a0f', borderRadius: '7px', padding: '6px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '12px' });
         let OBTrades  = [], SelT = new Set();
         CancelPage.appendChild(TList);
 
@@ -734,13 +843,14 @@
             TList.innerHTML = '';
             const Now = Date.now(), Cut = CAgeDays * 86400000, FL = (F || '').toLowerCase();
             const Vis = OBTrades.filter(T => (!FL || T.pn.toLowerCase().includes(FL)) && (Now - new Date(T.sa).getTime() >= Cut));
-            if (!Vis.length) { TList.appendChild(Span('No trades match.', { fontSize: '12px', color: '#555', padding: '10px', display: 'block' })); SCnt.textContent = SelT.size + ' selected'; return; }
+            if (!Vis.length) { TList.appendChild(Span('No trades match.', { fontSize: '12px', color: '#3d4451', padding: '10px', display: 'block' })); SCnt.textContent = SelT.size + ' selected'; return; }
             Vis.forEach(T => {
                 const Sel = SelT.has(T.id);
-                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(220,38,38,.15)' : 'transparent', border: '1px solid ' + (Sel ? '#dc2626' : 'transparent'), marginBottom: '2px' });
-                const CB  = El('div', { width: '14px', height: '14px', borderRadius: '3px', flexShrink: '0', background: Sel ? '#dc2626' : '#21262d', border: '1px solid ' + (Sel ? '#dc2626' : 'rgba(255,255,255,.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
-                if (Sel) { const C = Svg(I_CHECK, '10'); C.style.color = '#fff'; CB.appendChild(C); }
-                Row.appendChild(CB); Row.appendChild(Span(T.pn, { flex: '1', fontSize: '12px', color: '#e6edf3' })); Row.appendChild(Span('sent ' + new Date(T.sa).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#555' }));
+                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(248,81,73,.1)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(248,81,73,.3)' : 'transparent'), marginBottom: '2px' });
+                Row.className = 'pk-bt-row';
+                const CB  = El('div', { width: '15px', height: '15px', borderRadius: '3px', flexShrink: '0', background: Sel ? 'rgba(248,81,73,.25)' : 'rgba(255,255,255,.04)', border: '1px solid ' + (Sel ? 'rgba(248,81,73,.5)' : 'rgba(255,255,255,.12)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
+                if (Sel) { const C = Svg(I_CHECK, '9'); C.style.color = '#f85149'; CB.appendChild(C); }
+                Row.appendChild(CB); Row.appendChild(Span(T.pn, { flex: '1', fontSize: '12px', color: '#e6edf3' })); Row.appendChild(Span(new Date(T.sa).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#3d4451' }));
                 Row.addEventListener('click', () => { if (SelT.has(T.id)) SelT.delete(T.id); else SelT.add(T.id); RenderCancelList(CFInp.value); });
                 TList.appendChild(Row);
             });
@@ -751,20 +861,21 @@
             const Cut = CAgeDays * 86400000, FL = CFInp.value.toLowerCase();
             const Vis = OBTrades.filter(T => (!FL || T.pn.toLowerCase().includes(FL)) && (Date.now() - new Date(T.sa).getTime() >= Cut));
             const All = Vis.length > 0 && Vis.every(T => SelT.has(T.id));
-            if (All) { Vis.forEach(T => SelT.delete(T.id)); SBox.innerHTML = ''; SBox.style.background = '#21262d'; SBox.style.border = '1px solid rgba(255,255,255,.2)'; }
-            else     { Vis.forEach(T => SelT.add(T.id));    SBox.innerHTML = ''; SBox.style.background = '#238636'; SBox.style.border = '1px solid #2ea043'; const C = Svg(I_CHECK,'11'); C.style.color='#fff'; SBox.appendChild(C); }
+            if (All) { Vis.forEach(T => SelT.delete(T.id)); SBox.innerHTML = ''; SBox.style.background = 'rgba(255,255,255,.04)'; SBox.style.border = '1px solid rgba(255,255,255,.12)'; }
+            else     { Vis.forEach(T => SelT.add(T.id));    SBox.innerHTML = ''; SBox.style.background = 'rgba(46,160,67,.25)'; SBox.style.border = '1px solid rgba(46,160,67,.5)'; const C = Svg(I_CHECK,'11'); C.style.color='#3fb950'; SBox.appendChild(C); }
             RenderCancelList(CFInp.value);
         });
         CFInp.addEventListener('input', () => RenderCancelList(CFInp.value));
 
         LTBtn.addEventListener('click', async () => {
-            LTBtn.textContent = 'Loading...'; LTBtn.disabled = true;
+            LTBtn.lastChild.textContent = ' Loading...'; LTBtn.disabled = true;
             OBTrades = []; SelT.clear(); TList.innerHTML = '';
-            TList.appendChild(Span('Fetching outbound trades...', { fontSize: '12px', color: '#8b949e', padding: '10px', display: 'block' }));
+            TList.appendChild(Span('Fetching outbound trades...', { fontSize: '12px', color: '#555', padding: '10px', display: 'block' }));
             try {
                 let Cur = null, Pg = 1, All = [];
                 do {
-                    const R = await fetch('/apisite/trades/v1/trades/outbound?limit=100&sortOrder=Desc' + (Cur ? '&cursor=' + Cur : ''), { credentials: 'include' }).then(R2 => R2.json());
+                    const CursorPart = (Cur != null && Cur !== '') ? '&cursor=' + Cur : '';
+                    const R = await fetch('/apisite/trades/v1/trades/outbound?limit=100&sortOrder=Desc' + CursorPart, { credentials: 'include' }).then(R2 => R2.json());
                     All = All.concat(R.data || []);
                     const Next = R.nextPageCursor;
                     Cur = (Next != null && Next !== '') ? Next : null;
@@ -773,18 +884,18 @@
                 OBTrades = All.map(T => ({ id: T.id, pn: T.user?.name || String(T.user?.id || '?'), sa: T.created }));
                 const Cut = CAgeDays * 86400000;
                 OBTrades.filter(T => (Date.now() - new Date(T.sa).getTime()) >= Cut).forEach(T => SelT.add(T.id));
-                RenderCancelList(''); LTBtn.textContent = 'Loaded ' + OBTrades.length;
+                RenderCancelList(''); LTBtn.lastChild.textContent = ' ' + OBTrades.length + ' loaded';
             } catch (E) {
-                TList.innerHTML = ''; TList.appendChild(Span('Failed: ' + E.message, { fontSize: '12px', color: '#e74c3c', padding: '10px', display: 'block' }));
-                LTBtn.textContent = 'Load Trades';
+                TList.innerHTML = ''; TList.appendChild(Span('Failed: ' + E.message, { fontSize: '12px', color: '#f85149', padding: '10px', display: 'block' }));
+                LTBtn.lastChild.textContent = ' Load Trades';
             }
             LTBtn.disabled = false;
         });
 
-        const CDR = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#8b949e' });
-        CDR.appendChild(Span('Delay between cancels:'));
+        const CDR = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', fontSize: '12px', color: '#555', background: '#161b22', border: '1px solid rgba(255,255,255,.07)', borderRadius: '6px', padding: '8px 12px' });
+        CDR.appendChild(Span('Delay between cancels:', { fontSize: '11px', color: '#555' }));
         let CDel  = 2;
-        const MkCB = T => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = T; return B; };
+        const MkCB = T => { const B = El('button', { width: '22px', height: '22px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.className = 'pk-bt-btn'; B.textContent = T; return B; };
         const CMn = MkCB('−'), CPl = MkCB('+');
         const CD  = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' }); CD.textContent = '2s';
         CMn.addEventListener('click', () => { CDel = Math.max(1,  CDel - 1); CD.textContent = CDel + 's'; });
@@ -792,21 +903,25 @@
         CDR.appendChild(CMn); CDR.appendChild(CD); CDR.appendChild(CPl);
         CancelPage.appendChild(CDR);
 
-        const CLBox = El('div', { background: '#0d1117', borderRadius: '5px', padding: '8px 10px', height: '80px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
+        const CLBox = El('div', { background: '#060a0f', borderRadius: '7px', padding: '10px 12px', height: '90px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '12px' });
         const CLog  = (T, C) => LogLine(CLBox, T, C);
         CancelPage.appendChild(CLBox);
 
         const CF      = El('div', { display: 'flex', gap: '8px' });
-        const DCBtn   = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' }); DCBtn.textContent = 'Cancel Selected';
-        const CSBtn   = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#333', border: '1px solid rgba(255,255,255,.2)', borderRadius: '6px', cursor: 'pointer' }); CSBtn.textContent = 'Stop';
-        CSBtn.addEventListener('click', () => { CancelAbort = true; CLog('Stopped.', '#e74c3c'); DCBtn.disabled = false; DCBtn.textContent = 'Cancel Selected'; CancelRunning = false; });
+        const DCBtn   = El('button', { flex: '1', padding: '10px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: 'rgba(248,81,73,.2)', border: '1px solid rgba(248,81,73,.4)', borderRadius: '7px', cursor: 'pointer' });
+        DCBtn.className = 'pk-bt-btn';
+        DCBtn.textContent = 'Cancel Selected';
+        const CSBtn   = El('button', { padding: '10px 18px', fontSize: '13px', fontWeight: '700', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '7px', cursor: 'pointer' });
+        CSBtn.className = 'pk-bt-btn';
+        CSBtn.textContent = 'Stop';
+        CSBtn.addEventListener('click', () => { CancelAbort = true; CLog('Stopped.', '#f85149'); DCBtn.disabled = false; DCBtn.textContent = 'Cancel Selected'; CancelRunning = false; });
 
         DCBtn.addEventListener('click', async () => {
             if (CancelRunning) return;
             if (!SelT.size) { Toast('No trades selected', 'warn'); return; }
             CancelRunning = true; CancelAbort = false;
             DCBtn.textContent = 'Running...'; DCBtn.disabled = true; CLBox.innerHTML = '';
-            const Ids = [...SelT]; CLog('Cancelling ' + Ids.length + ' trades...', '#4a9fd4');
+            const Ids = [...SelT]; CLog('Cancelling ' + Ids.length + ' trades...', '#58a6ff');
             let Done = 0, Fail = 0;
             for (let I = 0; I < Ids.length; I++) {
                 if (CancelAbort) break;
@@ -815,11 +930,11 @@
                     const Csrf = await GetCsrf();
                     const R    = await fetch('/apisite/trades/v1/trades/' + TId + '/decline', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'x-csrf-token': Csrf } });
                     if (!R.ok) throw new Error('HTTP ' + R.status);
-                    CLog('Cancelled ' + TId, '#4db87a'); SelT.delete(TId); Done++;
-                } catch (E) { CLog(TId + ': ' + E.message, '#e74c3c'); Fail++; }
+                    CLog('Cancelled ' + TId, '#3fb950'); SelT.delete(TId); Done++;
+                } catch (E) { CLog(TId + ': ' + E.message, '#f85149'); Fail++; }
                 if (!CancelAbort && I < Ids.length - 1) await Sleep(CDel * 1000);
             }
-            CLog('Done — Cancelled: ' + Done + '  Failed: ' + Fail, '#4db87a');
+            CLog('Done — Cancelled: ' + Done + '  Failed: ' + Fail, '#3fb950');
             Toast('Cancelled ' + Done + ' trades', 'success');
             DCBtn.textContent = 'Cancel Selected'; DCBtn.disabled = false; CancelRunning = false;
             RenderCancelList(CFInp.value);
@@ -832,8 +947,11 @@
         Pages.forEach(P => Content.appendChild(P));
         TabBtns.forEach((B, I) => {
             B.addEventListener('click', () => {
-                TabBtns.forEach((Btn, J) => { Btn.style.color = J===I ? '#e6edf3' : '#8b949e'; Btn.style.borderBottom = J===I ? '2px solid #238636' : '2px solid transparent'; });
-                Pages.forEach((P, J) => { P.style.display = J===I ? '' : 'none'; });
+                TabBtns.forEach((Btn, J) => {
+                    Btn.style.color       = J === I ? '#e6edf3' : '#555';
+                    Btn.style.borderBottom = J === I ? '2px solid #2ea043' : '2px solid transparent';
+                });
+                Pages.forEach((P, J) => { P.style.display = J === I ? '' : 'none'; });
             });
         });
 
