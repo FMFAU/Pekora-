@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.0)
+//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.1)
 //  Exposes: window.PekoraPlus.BulkTrade
 //  Requires: pk-core.js, pk-toast.js already loaded
 // ════════════════════════════════════════════════════════════════════════════
@@ -45,7 +45,20 @@
         Btn.disabled = (State === 'running');
     }
 
+    // ── Kmap helper ────────────────────────────────────────────────────────
+    // FIX: GetKMap is defined in the main script, not exported to NS directly.
+    // We try NS.KCache first (set by the main script), then try NS.GetKMap if
+    // it was explicitly exported, otherwise return empty object.
+    async function GetKmap() {
+        if (NS.KCache) return NS.KCache;
+        if (typeof NS.GetKMap === 'function') {
+            return await NS.GetKMap();
+        }
+        return {};
+    }
+
     // ── Inventory loader ───────────────────────────────────────────────────
+    // FIX: Now paginates through ALL pages using nextPageCursor, not just first 100.
     async function LoadInventory(Log) {
         if (BT_Inventory) { Log('Inventory already loaded (' + BT_Inventory.length + ' items)', '#4db87a'); return BT_Inventory; }
         Log('Fetching your inventory…');
@@ -53,9 +66,23 @@
             const Me  = await fetch('/apisite/users/v1/users/authenticated', { credentials: 'include' }).then(R => R.json());
             const Uid = Me.id;
             if (!Uid) throw new Error('Not logged in');
-            const Raw  = await fetch(`/apisite/inventory/v1/users/${Uid}/assets/collectibles?sortOrder=Desc&limit=100`, { credentials: 'include' }).then(R => R.json());
-            const Kmap = NS.KCache || await (NS.GetKMap?.() || Promise.resolve({}));
-            BT_Inventory = (Raw.data || []).map(I => ({
+
+            // FIX: Paginate through all collectibles, not just first 100
+            let Cursor = null;
+            let AllItems = [];
+            let Page = 0;
+            do {
+                const Url = `/apisite/inventory/v1/users/${Uid}/assets/collectibles?sortOrder=Desc&limit=100` + (Cursor ? `&cursor=${encodeURIComponent(Cursor)}` : '');
+                const Raw = await fetch(Url, { credentials: 'include' }).then(R => R.json());
+                const PageData = Raw.data || [];
+                AllItems = AllItems.concat(PageData);
+                Cursor = Raw.nextPageCursor || null;
+                Page++;
+                if (Cursor) Log(`Fetched page ${Page} (${AllItems.length} items so far)…`);
+            } while (Cursor && Page < 20); // safety cap: 20 pages = 2000 items
+
+            const Kmap = await GetKmap();
+            BT_Inventory = AllItems.map(I => ({
                 userAssetId: I.userAssetId,
                 itemId:      String(I.assetId),
                 name:        I.name,
@@ -71,9 +98,8 @@
     }
 
     // ── Owner fetcher ──────────────────────────────────────────────────────
-    // Uses the pekora resellers endpoint directly — the only reliable source
-    // for tradable userAssetIds. Koromons /api/items has all item metadata
-    // but has no owner/reseller sub-endpoint.
+    // FIX: Now correctly collects ALL userAssetIds per seller (not just one),
+    // which is needed for the "Request multiple items" option.
     async function FetchOwners(ItemId, Log) {
         if (BT_OwnerCache[ItemId]) {
             Log('Using cached resellers (' + BT_OwnerCache[ItemId].length + ')', '#4db87a');
@@ -83,7 +109,7 @@
             Log('Fetching resellers of item ' + ItemId + ' from pekora…');
             let Cursor = null, All = [];
             do {
-                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100&cursor=' + (Cursor || '');
+                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100' + (Cursor ? '&cursor=' + encodeURIComponent(Cursor) : '&cursor=');
                 const R   = await fetch(Url, { credentials: 'include' });
                 if (!R.ok) throw new Error('HTTP ' + R.status);
                 const J   = await R.json();
@@ -96,20 +122,31 @@
                 return [];
             }
 
-            // Deduplicate by seller — keep their cheapest listing
+            // FIX: Collect ALL userAssetIds per seller (for multiItems mode),
+            // and track their cheapest price for sorting.
             const ByUser = new Map();
             for (const Entry of All) {
                 const Uid = String(Entry.seller?.id);
-                if (!ByUser.has(Uid) || Entry.price < ByUser.get(Uid).price) {
-                    ByUser.set(Uid, Entry);
+                if (!ByUser.has(Uid)) {
+                    ByUser.set(Uid, {
+                        userId:       Uid,
+                        username:     Entry.seller?.name || Uid,
+                        userAssetIds: [Entry.userAssetId],
+                        bestPrice:    Entry.price,
+                    });
+                } else {
+                    const Existing = ByUser.get(Uid);
+                    // Collect all their listings
+                    Existing.userAssetIds.push(Entry.userAssetId);
+                    // Track cheapest price for sorting
+                    if (Entry.price < Existing.bestPrice) {
+                        Existing.bestPrice = Entry.price;
+                    }
                 }
             }
 
-            const Owners = [...ByUser.values()].map(Entry => ({
-                userId:       String(Entry.seller.id),
-                username:     Entry.seller.name || String(Entry.seller.id),
-                userAssetIds: [Entry.userAssetId],
-            }));
+            // Sort by best price ascending so cheapest sellers come first
+            const Owners = [...ByUser.values()].sort((A, B) => A.bestPrice - B.bestPrice);
 
             BT_OwnerCache[ItemId] = Owners;
             Log('Found ' + Owners.length + ' resellers to trade with', '#4db87a');
@@ -321,9 +358,13 @@
 
         LoadInvBtn.addEventListener('click', async () => {
             LoadInvBtn.textContent = 'Loading…'; LoadInvBtn.disabled = true;
-            InventoryItems = await LoadInventory((T, C) => {});
+            // FIX: Reset cache so a fresh paginated load always runs
+            BT_Inventory = null;
+            const TempLog = (T, C) => { InvCountSpan.textContent = T; InvCountSpan.style.color = C || '#8b949e'; };
+            InventoryItems = await LoadInventory(TempLog);
             BT_Inventory   = InventoryItems;
             InvCountSpan.textContent = InventoryItems.length + ' items';
+            InvCountSpan.style.color = '#8b949e';
             LoadInvBtn.textContent = 'Load My Inventory'; LoadInvBtn.disabled = false;
             if (InventoryItems.length) OpenInventoryPicker();
         });
@@ -345,24 +386,27 @@
         let TargetItemId   = null;
         let TargetItemName = '';
 
+        // FIX: SearchTarget now uses GetKmap() helper which correctly resolves
+        // the kmap whether it's already cached or needs to be fetched.
         async function SearchTarget() {
             const Q = TgtInput.value.trim(); if (!Q) return;
             TgtInfo.innerHTML = '';
             TgtInfo.appendChild(Span('Searching…', { fontSize: '12px', color: '#8b949e' }));
             try {
-                // Always ensure the Koromons item map is loaded first
-                const Kmap = NS.KCache || await (NS.GetKMap ? NS.GetKMap() : Promise.resolve({})) || {};
+                const Kmap = await GetKmap();
                 let ItemId = /^\d+$/.test(Q) ? Q : null;
                 if (!ItemId) {
-                    // Search by name in the already-loaded Kmap from /api/items
+                    // Search by name in the loaded Kmap
                     const QL = Q.toLowerCase();
-                    const Match = Object.values(Kmap).find(I =>
-                        (I.Name || I.name || '').toLowerCase().includes(QL) ||
-                        (I.Acronym || I.acronym || '').toLowerCase() === QL
-                    );
+                    // FIX: More robust name matching — check all common field name casings
+                    const Match = Object.entries(Kmap).find(([Id, I]) => {
+                        const Name    = (I.Name || I.name || '').toLowerCase();
+                        const Acronym = (I.Acronym || I.acronym || '').toLowerCase();
+                        return Name.includes(QL) || Acronym === QL;
+                    });
                     if (!Match) throw new Error('No item found for "' + Q + '" — try the item ID instead');
-                    ItemId         = String(Match.itemId || Match.ItemId);
-                    TargetItemName = Match.Name || Match.name || Q;
+                    ItemId         = Match[0]; // key is the itemId string
+                    TargetItemName = Match[1].Name || Match[1].name || Q;
                 } else {
                     TargetItemName = (Kmap[ItemId]?.Name || Kmap[ItemId]?.name) || 'Item ' + ItemId;
                 }
@@ -377,6 +421,8 @@
                 if (KVal  > 0)  IR.appendChild(Span('Val: '    + Fmt(KVal),    { fontSize: '11px', color: '#4db87a', fontWeight: '600' }));
                 if (KRAP  > 0)  IR.appendChild(Span('RAP: '    + Fmt(KRAP),    { fontSize: '11px', color: '#4a9fd4', fontWeight: '600' }));
                 if (KDemand && KDemand !== 'None') IR.appendChild(Span('Demand: ' + KDemand, { fontSize: '11px', color: '#c9a84c' }));
+                // Show item ID for confirmation
+                IR.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#555' }));
                 TgtInfo.appendChild(IR);
                 UpdateRatioBar();
             } catch (E) {
@@ -529,6 +575,7 @@
                 if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup UID ' + Owner.username, '#555'); Skipped++; continue; }
                 SeenUids.add(Owner.userId);
 
+                // FIX: userAssetIds is now always a proper array of all their listings
                 const TheirUAIds = Opts.multiItems ? Owner.userAssetIds.slice(0, 4) : [Owner.userAssetIds[0]];
 
                 try {
