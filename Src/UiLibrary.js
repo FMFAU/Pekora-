@@ -1,4 +1,4 @@
-// ui-library.js
+// UiLibrary.js
 // UI helpers for Pekora+ — only finished elements cuz lowkey still early dev.
 
 (function () {
