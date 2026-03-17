@@ -176,46 +176,50 @@
         }
     }
 
-    // ── Reseller fetcher ───────────────────────────────────────────────────
+    // ── Owner fetcher — uses /inventory/v2/assets/{id}/owners ────────────────
+    // Response shape: { nextPageCursor: "50"|null, data: [{id, owner:{id,name}, serialNumber}] }
+    // credentials:'include' uses the logged-in user's session cookie automatically
     async function FetchOwners(ItemId, Log) {
         if (BT_OwnerCache[ItemId]) {
-            Log('Using cached resellers (' + BT_OwnerCache[ItemId].length + ')', '#4db87a');
+            Log('Using cached owners (' + BT_OwnerCache[ItemId].length + ')', '#4db87a');
             return BT_OwnerCache[ItemId];
         }
         try {
-            Log('Fetching resellers for item ' + ItemId + '...');
-            let Cursor = null, All = [];
+            Log('Fetching owners for item ' + ItemId + '...');
+            let Cursor = '', All = [], Page = 0;
             do {
-                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100&cursor=' + (Cursor ? encodeURIComponent(Cursor) : '');
+                const Url = '/apisite/inventory/v2/assets/' + ItemId + '/owners?cursor=' + encodeURIComponent(Cursor) + '&limit=50&sortOrder=Asc';
                 const R = await fetch(Url, { credentials: 'include' });
                 if (!R.ok) throw new Error('HTTP ' + R.status);
                 const J = await R.json();
-                All = All.concat(J.data || []);
+                const PageData = J.data || [];
+                // Filter out entries with no owner (unowned/null)
+                All = All.concat(PageData.filter(E => E.owner != null));
                 const Next = J.nextPageCursor;
                 Cursor = (Next != null && Next !== '') ? Next : null;
-            } while (Cursor);
+                Page++;
+                if (Cursor) Log('Page ' + Page + ': ' + All.length + ' owners so far...');
+            } while (Cursor && Page < 40); // 40 pages * 50 = 2000 max
 
-            if (!All.length) { Log('No resellers found — item may not be on sale.', '#f59e0b'); return []; }
+            if (!All.length) { Log('No owners found.', '#f59e0b'); return []; }
 
-            // Collect all userAssetIds per seller
+            // Deduplicate by userId — collect all their userAssetIds
             const ByUser = new Map();
             for (const E of All) {
-                const Uid = String(E.seller?.id);
+                const Uid = String(E.owner.id);
                 if (!ByUser.has(Uid)) {
-                    ByUser.set(Uid, { userId: Uid, username: E.seller?.name || Uid, userAssetIds: [E.userAssetId], bestPrice: E.price });
+                    ByUser.set(Uid, { userId: Uid, username: E.owner.name || Uid, userAssetIds: [E.id] });
                 } else {
-                    const Ex = ByUser.get(Uid);
-                    Ex.userAssetIds.push(E.userAssetId);
-                    if (E.price < Ex.bestPrice) Ex.bestPrice = E.price;
+                    ByUser.get(Uid).userAssetIds.push(E.id);
                 }
             }
 
-            const Owners = [...ByUser.values()].sort((A, B) => A.bestPrice - B.bestPrice);
+            const Owners = [...ByUser.values()];
             BT_OwnerCache[ItemId] = Owners;
-            Log('Found ' + Owners.length + ' resellers', '#4db87a');
+            Log('Found ' + Owners.length + ' unique owners (' + All.length + ' total copies)', '#4db87a');
             return Owners;
         } catch (E) {
-            Log('Resellers fetch failed: ' + E.message, '#e74c3c');
+            Log('Owner fetch failed: ' + E.message, '#e74c3c');
             return [];
         }
     }
@@ -408,87 +412,153 @@
             if (InvItems.length) OpenPicker();
         });
 
-        // ── 2. Target item ────────────────────────────────────────────────
+        // ── 2. Target item — live search with dropdown ───────────────────────
         BlastPage.appendChild(SecLbl('2. Target Item', '14px'));
-        const TgtRow = El('div', { display: 'flex', gap: '8px', marginBottom: '6px' });
-        const TgtInp = El('input', { flex: '1', padding: '6px 12px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '13px', outline: 'none' });
-        TgtInp.placeholder = 'Item name or ID...';
-        const FindBtn = El('button', { padding: '6px 14px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' });
-        FindBtn.appendChild(Svg(I_SEARCH, '13')); FindBtn.appendChild(document.createTextNode('Find'));
-        TgtRow.appendChild(TgtInp); TgtRow.appendChild(FindBtn);
-        BlastPage.appendChild(TgtRow);
+
+        // Wrapper for input + dropdown, positioned relative so dropdown anchors to it
+        const TgtWrap = El('div', { position: 'relative', marginBottom: '6px' });
+        const TgtInp  = El('input', { width: '100%', boxSizing: 'border-box', padding: '6px 12px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '13px', outline: 'none' });
+        TgtInp.placeholder = 'Type item name or paste ID...';
+        TgtWrap.appendChild(TgtInp);
+
+        // Dropdown list
+        const TgtDrop = El('div', {
+            position: 'absolute', top: '100%', left: '0', right: '0', zIndex: '9999',
+            background: '#1c2128', border: '1px solid rgba(255,255,255,.15)', borderTop: 'none',
+            borderRadius: '0 0 5px 5px', maxHeight: '200px', overflowY: 'auto', display: 'none',
+        });
+        TgtWrap.appendChild(TgtDrop);
+        BlastPage.appendChild(TgtWrap);
 
         const TgtInfo = El('div', { minHeight: '36px', marginBottom: '10px' });
         BlastPage.appendChild(TgtInfo);
 
-        let TgtId   = null;
-        let TgtName = '';
+        let TgtId      = null;
+        let TgtName    = '';
+        let SearchTimer2 = null;
 
-        async function DoSearch() {
-            const Q = TgtInp.value.trim(); if (!Q) return;
+        // Get kmap once and cache it for the dropdown
+        let DropKmap = null;
+
+        function SelectItem(ItemId, Kmap) {
+            const K  = Kmap[ItemId] || {};
+            TgtId    = ItemId;
+            TgtName  = K.Name || K.name || ('Item ' + ItemId);
+            TgtInp.value = TgtName;
+            TgtDrop.style.display = 'none';
+            TgtDrop.innerHTML = '';
+
             TgtInfo.innerHTML = '';
-            const StatusMsg = Span('Searching...', { fontSize: '12px', color: '#8b949e' });
-            TgtInfo.appendChild(StatusMsg);
-
-            // Debug log: writes to status span AND console so you can see exactly what fails
-            const SearchLog = (T, C) => { StatusMsg.textContent = T; if (C) StatusMsg.style.color = C; console.log('[PK+ search]', T); };
-
-            try {
-                const Kmap = await EnsureKmap(SearchLog);
-
-                if (!Kmap || !Object.keys(Kmap).length) {
-                    throw new Error('Item map empty — check F12 console for [PK+ kmap] debug lines');
-                }
-
-                StatusMsg.textContent = 'Searching ' + Object.keys(Kmap).length + ' items...';
-
-                let ItemId = null;
-
-                if (/^\d+$/.test(Q)) {
-                    // Direct numeric ID
-                    ItemId = Q;
-                    if (!Kmap[ItemId]) throw new Error('Item ID ' + ItemId + ' not found. Database has ' + Object.keys(Kmap).length + ' items.');
-                    TgtName = Kmap[ItemId].Name || Kmap[ItemId].name || ('Item ' + ItemId);
-                } else {
-                    // Name/acronym search with scoring
-                    const QL = Q.toLowerCase();
-                    let Best = null, BestScore = -1;
-                    for (const [Id, Item] of Object.entries(Kmap)) {
-                        const Name    = (Item.Name    || Item.name    || '').toLowerCase();
-                        const Acronym = (Item.Acronym || Item.acronym || '').toLowerCase();
-                        if (Acronym && Acronym === QL)               { Best = [Id, Item]; break; }
-                        if (Name === QL              && BestScore < 3) { Best = [Id, Item]; BestScore = 3; }
-                        else if (Name.startsWith(QL) && BestScore < 2) { Best = [Id, Item]; BestScore = 2; }
-                        else if (Name.includes(QL)   && BestScore < 1) { Best = [Id, Item]; BestScore = 1; }
-                    }
-                    if (!Best) throw new Error('No item found for "' + Q + '". Try the item ID instead, or load the page first to populate the item cache.');
-                    ItemId  = Best[0];
-                    TgtName = Best[1].Name || Best[1].name || Q;
-                }
-
-                TgtId = ItemId;
-                const K  = Kmap[ItemId] || {};
-                const KV = K.Value  || K.value  || 0;
-                const KR = K.RAP    || K.rap    || 0;
-                const KD = K.Demand || K.demand || '';
-
-                TgtInfo.innerHTML = '';
-                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '8px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap' });
-                Row.appendChild(Span(TgtName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
-                if (KV > 0) Row.appendChild(Span('Val: '    + Fmt(KV), { fontSize: '11px', color: '#4db87a', fontWeight: '600' }));
-                if (KR > 0) Row.appendChild(Span('RAP: '    + Fmt(KR), { fontSize: '11px', color: '#4a9fd4', fontWeight: '600' }));
-                if (KD && KD !== 'None') Row.appendChild(Span('Demand: ' + KD, { fontSize: '11px', color: '#c9a84c' }));
-                Row.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#555' }));
-                TgtInfo.appendChild(Row);
-                CalcRatio();
-            } catch (E) {
-                TgtInfo.innerHTML = '';
-                TgtInfo.appendChild(Span('Error: ' + E.message, { fontSize: '12px', color: '#e74c3c' }));
-            }
+            const KV = K.Value  || K.value  || 0;
+            const KR = K.RAP    || K.rap    || 0;
+            const KD = K.Demand || K.demand || '';
+            const Row = El('div', { display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '8px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap' });
+            Row.appendChild(Span(TgtName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
+            if (KV > 0) Row.appendChild(Span('Val: '    + Fmt(KV), { fontSize: '11px', color: '#4db87a', fontWeight: '600' }));
+            if (KR > 0) Row.appendChild(Span('RAP: '    + Fmt(KR), { fontSize: '11px', color: '#4a9fd4', fontWeight: '600' }));
+            if (KD && KD !== 'None') Row.appendChild(Span('Demand: ' + KD, { fontSize: '11px', color: '#c9a84c' }));
+            Row.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#555' }));
+            TgtInfo.appendChild(Row);
+            CalcRatio();
         }
 
-        FindBtn.addEventListener('click', DoSearch);
-        TgtInp.addEventListener('keydown', E => { if (E.key === 'Enter') DoSearch(); });
+        function RenderDropdown(Matches, Kmap) {
+            TgtDrop.innerHTML = '';
+            if (!Matches.length) { TgtDrop.style.display = 'none'; return; }
+            Matches.forEach(([Id, Item]) => {
+                const K  = Item;
+                const KV = K.Value || K.value || 0;
+                const KR = K.RAP   || K.rap   || 0;
+                const Row = El('div', {
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '6px 12px', cursor: 'pointer', fontSize: '12px',
+                    borderBottom: '1px solid rgba(255,255,255,.06)',
+                });
+                Row.style.transition = 'background .1s';
+                Row.addEventListener('mouseenter', () => { Row.style.background = 'rgba(255,255,255,.07)'; });
+                Row.addEventListener('mouseleave', () => { Row.style.background = ''; });
+
+                const Left = El('div', { display: 'flex', flexDirection: 'column', gap: '1px', overflow: 'hidden' });
+                const NameSpan = El('span', {}); NameSpan.style.cssText = 'color:#e6edf3;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                NameSpan.textContent = K.Name || K.name || ('Item ' + Id);
+                const SubSpan = El('span', {}); SubSpan.style.cssText = 'font-size:10px;color:#555;';
+                SubSpan.textContent = 'ID: ' + Id + (K.Acronym || K.acronym ? '  · ' + (K.Acronym || K.acronym) : '');
+                Left.appendChild(NameSpan); Left.appendChild(SubSpan);
+
+                const Right = El('div', { display: 'flex', gap: '8px', alignItems: 'center', flexShrink: '0', marginLeft: '8px' });
+                if (KV > 0) { const V = El('span', {}); V.style.cssText = 'font-size:10px;color:#4db87a;font-weight:600;'; V.textContent = Fmt(KV); Right.appendChild(V); }
+                if (KR > 0) { const R2 = El('span', {}); R2.style.cssText = 'font-size:10px;color:#4a9fd4;'; R2.textContent = 'RAP ' + Fmt(KR); Right.appendChild(R2); }
+
+                Row.appendChild(Left); Row.appendChild(Right);
+                Row.addEventListener('mousedown', (Ev) => {
+                    Ev.preventDefault(); // prevent input blur before click fires
+                    SelectItem(Id, Kmap);
+                });
+                TgtDrop.appendChild(Row);
+            });
+            TgtDrop.style.display = 'block';
+        }
+
+        async function UpdateDropdown(Q) {
+            if (!Q || Q.length < 2) { TgtDrop.style.display = 'none'; return; }
+
+            // Load kmap if not yet loaded
+            if (!DropKmap) {
+                const SearchLog = (T, C) => { console.log('[PK+ search]', T); };
+                DropKmap = await EnsureKmap(SearchLog);
+            }
+            if (!DropKmap || !Object.keys(DropKmap).length) return;
+
+            const QL = Q.toLowerCase();
+            const Matches = [];
+
+            // Direct ID match
+            if (/^\d+$/.test(Q) && DropKmap[Q]) {
+                Matches.push([Q, DropKmap[Q]]);
+            } else {
+                // Score and collect up to 10 matches
+                for (const [Id, Item] of Object.entries(DropKmap)) {
+                    const Name    = (Item.Name    || Item.name    || '').toLowerCase();
+                    const Acronym = (Item.Acronym || Item.acronym || '').toLowerCase();
+                    let Score = 0;
+                    if (Acronym && Acronym === QL)       Score = 4;
+                    else if (Name === QL)                Score = 3;
+                    else if (Name.startsWith(QL))        Score = 2;
+                    else if (Name.includes(QL))          Score = 1;
+                    if (Score > 0) Matches.push([Id, Item, Score]);
+                    if (Matches.length >= 200) break; // cap scan for perf
+                }
+                Matches.sort((A, B) => B[2] - A[2]);
+                Matches.splice(10); // show top 10
+            }
+
+            RenderDropdown(Matches.map(M => [M[0], M[1]]), DropKmap);
+        }
+
+        TgtInp.addEventListener('input', () => {
+            const Q = TgtInp.value.trim();
+            // Clear confirmed selection if user is typing again
+            TgtId = null; TgtInfo.innerHTML = '';
+            clearTimeout(SearchTimer2);
+            SearchTimer2 = setTimeout(() => UpdateDropdown(Q), 150);
+        });
+
+        TgtInp.addEventListener('keydown', E => {
+            if (E.key === 'Escape') { TgtDrop.style.display = 'none'; }
+            if (E.key === 'Enter' && TgtDrop.style.display !== 'none') {
+                const First = TgtDrop.firstElementChild;
+                if (First) First.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (E) => {
+            if (!TgtWrap.contains(E.target)) TgtDrop.style.display = 'none';
+        }, { capture: false });
+
+        TgtInp.addEventListener('focus', () => {
+            if (TgtInp.value.trim().length >= 2) UpdateDropdown(TgtInp.value.trim());
+        });
 
         // ── Ratio bar ─────────────────────────────────────────────────────
         const RBar = El('div', { display: 'flex', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '6px 12px', marginBottom: '10px', fontSize: '12px', color: '#8b949e', flexWrap: 'wrap' });
