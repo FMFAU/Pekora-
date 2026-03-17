@@ -375,7 +375,7 @@
         const XBtn = El('button', { background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', color: '#8b949e', cursor: 'pointer', width: '30px', height: '30px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
         XBtn.className = 'pk-bt-btn';
         XBtn.appendChild(Svg(I_X, '14'));
-        XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); document.getElementById('pk-bt-styles')?.remove(); });
+        XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); document.getElementById('pk-bt-styles')?.remove(); document.getElementById('pk-bt-tgtdrop')?.remove(); });
         Hdr.appendChild(HdrL); Hdr.appendChild(XBtn);
 
         // ── Tabs ──────────────────────────────────────────────────────────
@@ -535,7 +535,7 @@
         // ── 2. Target item — live search with dropdown ───────────────────────
         BlastPage.appendChild(SecLbl('2 · Target Item', '16px'));
 
-        // Wrapper for input + dropdown, positioned relative so dropdown anchors to it
+        // Wrapper for input — dropdown is portalled to body to escape overflow:auto clipping
         const TgtWrap = El('div', { position: 'relative', marginBottom: '8px' });
         const TgtInpWrap = El('div', { position: 'relative', display: 'flex', alignItems: 'center' });
         const TgtIcon = El('div', { position: 'absolute', left: '11px', color: '#555', display: 'flex', pointerEvents: 'none', zIndex: '1' });
@@ -545,16 +545,25 @@
         TgtInp.placeholder = 'Type item name or paste ID...';
         TgtInpWrap.appendChild(TgtIcon); TgtInpWrap.appendChild(TgtInp);
         TgtWrap.appendChild(TgtInpWrap);
-
-        // Dropdown list — scrollable, shows all matches
-        const TgtDrop = El('div', {
-            position: 'absolute', top: 'calc(100% + 4px)', left: '0', right: '0', zIndex: '9999',
-            background: '#161b22', border: '1px solid rgba(255,255,255,.12)',
-            borderRadius: '8px', maxHeight: '260px', overflowY: 'auto', display: 'none',
-            boxShadow: '0 12px 32px rgba(0,0,0,.7)',
-        });
-        TgtWrap.appendChild(TgtDrop);
         BlastPage.appendChild(TgtWrap);
+
+        // Dropdown portalled to body so overflow:auto on Content div does not clip it
+        const TgtDrop = El('div', {
+            position: 'fixed', zIndex: '2000000',
+            background: '#161b22', border: '1px solid rgba(255,255,255,.15)',
+            borderRadius: '8px', maxHeight: '260px', overflowY: 'auto', display: 'none',
+            boxShadow: '0 12px 32px rgba(0,0,0,.85)',
+        });
+        TgtDrop.id = 'pk-bt-tgtdrop';
+        document.body.appendChild(TgtDrop);
+
+        // Reposition the dropdown directly under the input using its bounding rect
+        function PositionDrop() {
+            const R = TgtInp.getBoundingClientRect();
+            TgtDrop.style.left  = R.left + 'px';
+            TgtDrop.style.top   = (R.bottom + 4) + 'px';
+            TgtDrop.style.width = R.width + 'px';
+        }
 
         const TgtInfo = El('div', { minHeight: '40px', marginBottom: '12px' });
         BlastPage.appendChild(TgtInfo);
@@ -621,18 +630,25 @@
                 });
                 TgtDrop.appendChild(Row);
             });
+            PositionDrop();
             TgtDrop.style.display = 'block';
         }
 
         async function UpdateDropdown(Q) {
+            console.log('[PK+ UpdateDropdown] called with:', JSON.stringify(Q));
             if (!Q || Q.length < 2) { TgtDrop.style.display = 'none'; return; }
 
             // Load kmap if not yet loaded
             if (!DropKmap) {
+                console.log('[PK+ UpdateDropdown] loading kmap...');
                 const SearchLog = (T, C) => { console.log('[PK+ search]', T); };
                 DropKmap = await EnsureKmap(SearchLog);
+                console.log('[PK+ UpdateDropdown] kmap loaded, keys:', DropKmap ? Object.keys(DropKmap).length : 0);
             }
-            if (!DropKmap || !Object.keys(DropKmap).length) return;
+            if (!DropKmap || !Object.keys(DropKmap).length) {
+                console.warn('[PK+ UpdateDropdown] kmap empty — cannot search');
+                return;
+            }
 
             const QL = Q.toLowerCase();
             const Matches = [];
@@ -655,9 +671,11 @@
                 if (Score > 0) Matches.push([Id, Item, Score]);
             }
 
+            console.log('[PK+ UpdateDropdown] raw matches for', JSON.stringify(Q), ':', Matches.length);
             // Sort by score descending, show up to 30 so the user can scroll and pick
             Matches.sort((A, B) => B[2] - A[2]);
             const Top = Matches.slice(0, 30);
+            console.log('[PK+ UpdateDropdown] showing top', Top.length, 'results');
 
             RenderDropdown(Top.map(M => [M[0], M[1]]), DropKmap);
         }
@@ -678,10 +696,12 @@
             }
         });
 
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (E) => {
-            if (!TgtWrap.contains(E.target)) TgtDrop.style.display = 'none';
-        }, { capture: false });
+        // Close dropdown when clicking outside — check against both the input wrap and the portalled dropdown
+        document.addEventListener('mousedown', (E) => {
+            if (!TgtWrap.contains(E.target) && !TgtDrop.contains(E.target)) {
+                TgtDrop.style.display = 'none';
+            }
+        }, { capture: true });
 
         TgtInp.addEventListener('focus', () => {
             if (TgtInp.value.trim().length >= 2 && !TgtId) UpdateDropdown(TgtInp.value.trim());
