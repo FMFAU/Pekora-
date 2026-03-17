@@ -129,9 +129,12 @@
     async function LoadInventory(Log) {
         Log('Getting user ID...');
         try {
+            console.log('[PK+ Inventory] fetching authenticated user...');
             const MeResp = await fetch('/apisite/users/v1/users/authenticated', { credentials: 'include' });
+            console.log('[PK+ Inventory] auth status:', MeResp.status);
             if (!MeResp.ok) throw new Error('Auth HTTP ' + MeResp.status);
             const Me = await MeResp.json();
+            console.log('[PK+ Inventory] authenticated user id:', Me.id);
             if (!Me.id) throw new Error('Not logged in');
             const Uid = Me.id;
             Log('Loading inventory for UID ' + Uid + '...');
@@ -144,7 +147,9 @@
                 // Omit cursor param entirely on first page — some APIs reject cursor= (empty string)
                 const CursorPart = (Cursor != null && Cursor !== '') ? '&cursor=' + encodeURIComponent(Cursor) : '';
                 const Url = '/apisite/inventory/v1/users/' + Uid + '/assets/collectibles?sortOrder=Desc&limit=100' + CursorPart;
+                console.log('[PK+ Inventory] fetching page', Page + 1, ':', Url);
                 const Resp = await fetch(Url, { credentials: 'include' });
+                console.log('[PK+ Inventory] page', Page + 1, 'status:', Resp.status);
                 if (!Resp.ok) throw new Error('Inventory HTTP ' + Resp.status);
                 const Json = await Resp.json();
 
@@ -185,10 +190,12 @@
     async function FetchOwners(ItemId, Log) {
         if (BT_OwnerCache[ItemId]) {
             Log('Using cached owners (' + BT_OwnerCache[ItemId].length + ')', '#4db87a');
+            console.log('[PK+ FetchOwners] cache hit for', ItemId, '—', BT_OwnerCache[ItemId].length, 'owners');
             return BT_OwnerCache[ItemId];
         }
         try {
             Log('Fetching owners for item ' + ItemId + '...');
+            console.log('[PK+ FetchOwners] starting fetch for item', ItemId);
             let Cursor = null;
             let All    = [];
             let Page   = 0;
@@ -196,18 +203,28 @@
                 // Omit cursor param entirely on first page
                 const CursorPart = (Cursor != null && Cursor !== '') ? '&cursor=' + encodeURIComponent(Cursor) : '';
                 const Url = '/apisite/inventory/v2/assets/' + ItemId + '/owners?limit=100&sortOrder=Asc' + CursorPart;
+                console.log('[PK+ FetchOwners] fetching page', Page + 1, ':', Url);
                 const R = await fetch(Url, { credentials: 'include' });
-                if (!R.ok) throw new Error('HTTP ' + R.status);
+                console.log('[PK+ FetchOwners] page', Page + 1, 'status:', R.status);
+                if (!R.ok) {
+                    const ErrText = await R.text().catch(() => '');
+                    console.log('[PK+ FetchOwners] error body:', ErrText);
+                    throw new Error('HTTP ' + R.status);
+                }
                 const J = await R.json();
+                console.log('[PK+ FetchOwners] page', Page + 1, 'raw response — data.length:', (J.data || []).length, 'nextPageCursor:', J.nextPageCursor);
                 const PageData = J.data || [];
                 // Filter out entries with no owner (unowned/null)
-                All = All.concat(PageData.filter(E => E.owner != null));
+                const WithOwner = PageData.filter(E => E.owner != null);
+                console.log('[PK+ FetchOwners] page', Page + 1, '— entries with owner:', WithOwner.length, '/', PageData.length);
+                All = All.concat(WithOwner);
                 const Next = J.nextPageCursor;
                 Cursor = (Next != null && Next !== '') ? Next : null;
                 Page++;
                 if (Cursor) Log('Page ' + Page + ': ' + All.length + ' owners so far...');
             } while (Cursor && Page < 100); // 100 pages * 100 = 10,000 max
 
+            console.log('[PK+ FetchOwners] done — total raw entries with owner:', All.length);
             if (!All.length) { Log('No owners found.', '#f59e0b'); return []; }
 
             // Deduplicate by userId — collect all their userAssetIds
@@ -222,10 +239,12 @@
             }
 
             const Owners = [...ByUser.values()];
+            console.log('[PK+ FetchOwners] unique owners after dedup:', Owners.length);
             BT_OwnerCache[ItemId] = Owners;
             Log('Found ' + Owners.length + ' unique owners (' + All.length + ' total copies)', '#4db87a');
             return Owners;
         } catch (E) {
+            console.error('[PK+ FetchOwners] threw:', E);
             Log('Owner fetch failed: ' + E.message, '#e74c3c');
             return [];
         }
@@ -233,29 +252,62 @@
 
     // ── CSRF ───────────────────────────────────────────────────────────────
     async function GetCsrf() {
+        // Log all cookies so we can see which csrf cookie name is actually present
+        console.log('[PK+ CSRF] all cookies:', document.cookie);
         const M = document.cookie.match(/rbxcsrf4=([^;]+)/);
-        if (M) return decodeURIComponent(M[1]);
-        try { await fetch('/apisite/trades/v1/trades/send', { method: 'POST', credentials: 'include' }); } catch {}
-        const M2 = document.cookie.match(/rbxcsrf4=([^;]+)/);
-        return M2 ? decodeURIComponent(M2[1]) : '';
+        if (M) { console.log('[PK+ CSRF] found rbxcsrf4 in cookie'); return decodeURIComponent(M[1]); }
+        console.log('[PK+ CSRF] rbxcsrf4 not found, probing trade endpoint to set cookie...');
+        try {
+            const ProbeResp = await fetch('/apisite/trades/v1/trades/send', { method: 'POST', credentials: 'include' });
+            console.log('[PK+ CSRF] probe response status:', ProbeResp.status);
+            // Some APIs return the token in a response header instead of cookie
+            const HeaderToken = ProbeResp.headers.get('x-csrf-token');
+            if (HeaderToken) { console.log('[PK+ CSRF] got token from response header'); return HeaderToken; }
+        } catch (E) { console.log('[PK+ CSRF] probe fetch threw:', E.message); }
+        console.log('[PK+ CSRF] cookies after probe:', document.cookie);
+        // Try all common csrf cookie names
+        const Names = ['rbxcsrf4', 'rbxcsrf3', 'rbxcsrf2', 'rbxcsrf', '_csrf', 'csrf_token', 'XSRF-TOKEN'];
+        for (const Name of Names) {
+            const Rx = new RegExp(Name + '=([^;]+)');
+            const Mc = document.cookie.match(Rx);
+            if (Mc) { console.log('[PK+ CSRF] found token in cookie:', Name); return decodeURIComponent(Mc[1]); }
+        }
+        console.warn('[PK+ CSRF] no csrf token found anywhere — trade will likely 403');
+        return '';
     }
 
     // ── Trade sender ───────────────────────────────────────────────────────
     async function SendTrade(MyUAIds, TheirUserId, TheirUAIds) {
         const Csrf = await GetCsrf();
+        console.log('[PK+ SendTrade] CSRF token:', Csrf ? Csrf.slice(0,8) + '...' : 'EMPTY');
+        console.log('[PK+ SendTrade] MyUAIds:', MyUAIds);
+        console.log('[PK+ SendTrade] TheirUserId:', TheirUserId);
+        console.log('[PK+ SendTrade] TheirUAIds:', TheirUAIds);
+
+        // Build payload — userId on offer[1] must be the recipient's userId as a number
+        const Payload = { offers: [
+            { robux: null, userAssetIds: MyUAIds,    userId: null },
+            { robux: null, userAssetIds: TheirUAIds, userId: Number(TheirUserId) },
+        ]};
+        console.log('[PK+ SendTrade] payload:', JSON.stringify(Payload));
+
         const Resp = await fetch('/apisite/trades/v1/trades/send', {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json', 'x-csrf-token': Csrf },
-            body: JSON.stringify({ offers: [
-                { robux: null, userAssetIds: MyUAIds,    userId: null },
-                { robux: null, userAssetIds: TheirUAIds, userId: TheirUserId },
-            ]}),
+            body: JSON.stringify(Payload),
         });
+        console.log('[PK+ SendTrade] response status:', Resp.status);
         if (!Resp.ok) {
             let Msg = 'HTTP ' + Resp.status;
-            try { const J = await Resp.json(); Msg = J.errors?.[0]?.message || J.message || Msg; } catch {}
+            try {
+                const J = await Resp.json();
+                console.log('[PK+ SendTrade] error body:', JSON.stringify(J));
+                Msg = J.errors?.[0]?.message || J.message || Msg;
+            } catch (PE) { console.log('[PK+ SendTrade] could not parse error body:', PE.message); }
             throw new Error(Msg);
         }
+        const OkBody = await Resp.json().catch(() => ({}));
+        console.log('[PK+ SendTrade] success body:', JSON.stringify(OkBody));
     }
 
     // ── CSV export ─────────────────────────────────────────────────────────
@@ -743,6 +795,7 @@
         StopBtn.addEventListener('click', () => { BT_Abort = true; Log('Stopped by user.', '#f85149'); SetBtnState(SendBtn, 'idle'); BT_Running = false; });
 
         SendBtn.addEventListener('click', async () => {
+            console.log('[PK+ SendBtn] clicked — BT_Running:', BT_Running, 'SelOffer.size:', SelOffer.size, 'TgtId:', TgtId);
             if (BT_Running) return;
             if (!SelOffer.size) { Toast('Select at least one offer item', 'warn'); return; }
             if (!TgtId)         { Toast('Set a target item first', 'warn'); return; }
@@ -750,16 +803,22 @@
             SetBtnState(SendBtn, 'running'); LogBox.innerHTML = '';
 
             const MyUAIds  = [...SelOffer].map(Number);
+            console.log('[PK+ SendBtn] MyUAIds (numbers):', MyUAIds);
+            console.log('[PK+ SendBtn] InvItems count:', InvItems.length);
             const Kmap     = NS.KCache || {};
+            console.log('[PK+ SendBtn] KCache keys:', Object.keys(Kmap).length);
             const OfferVal = MyUAIds.reduce((S, UAId) => { const I = InvItems.find(X => X.userAssetId === UAId); return S + (I ? (I.value > 0 ? I.value : I.rap) : 0); }, 0);
+            console.log('[PK+ SendBtn] OfferVal:', OfferVal);
 
             Log('Target: ' + TgtName + ' (ID ' + TgtId + ')');
             Log('Fetching owners...');
             const Owners = await FetchOwners(TgtId, Log);
+            console.log('[PK+ SendBtn] owners returned:', Owners.length);
             if (!Owners.length) { Log('No owners found.', '#f85149'); SetBtnState(SendBtn, 'error'); BT_Running = false; return; }
 
             const Capped = Owners.slice(0, Opts.maxUsers);
             Log('Sending to ' + Capped.length + ' owners, ' + Opts.delaySec + 's delay', '#58a6ff');
+            console.log('[PK+ SendBtn] first 3 owners:', JSON.stringify(Capped.slice(0, 3)));
 
             let Sent = 0, Skipped = 0, Failed = 0;
             const SeenUids = new Set();
@@ -767,6 +826,7 @@
             for (let Idx = 0; Idx < Capped.length; Idx++) {
                 if (BT_Abort) break;
                 const Owner = Capped[Idx];
+                console.log('[PK+ SendBtn] processing owner', Idx + 1, '/', Capped.length, '—', Owner.username, '(' + Owner.userId + ')');
                 if (Opts.minRatio > 0) {
                     const TK = Kmap[TgtId] || {};
                     const RV2 = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
@@ -777,12 +837,14 @@
                 SeenUids.add(Owner.userId);
                 // Request multiple copies if the owner has more than one and multiItems is on
                 const TheirUAIds = Opts.multiItems ? Owner.userAssetIds.slice(0, 4) : [Owner.userAssetIds[0]];
+                console.log('[PK+ SendBtn] TheirUAIds:', TheirUAIds, 'multiItems:', Opts.multiItems);
                 try {
                     await SendTrade(MyUAIds, Owner.userId, TheirUAIds);
                     Log('Sent to ' + Owner.username + ' (' + Owner.userId + ')' + (TheirUAIds.length > 1 ? ' [x' + TheirUAIds.length + ']' : ''), '#3fb950');
                     TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Sent', detail: Owner.username });
                     Sent++;
                 } catch (E) {
+                    console.error('[PK+ SendBtn] trade failed for', Owner.username, ':', E.message);
                     Log('Failed ' + Owner.username + ': ' + E.message, '#f85149');
                     TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Failed', detail: E.message });
                     Failed++;
