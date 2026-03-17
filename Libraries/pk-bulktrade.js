@@ -71,33 +71,16 @@
     }
 
     // ── Owner fetcher ──────────────────────────────────────────────────────
+    // Uses the pekora resellers endpoint directly — the only reliable source
+    // for tradable userAssetIds. Koromons /api/items has all item metadata
+    // but has no owner/reseller sub-endpoint.
     async function FetchOwners(ItemId, Log) {
-        if (BT_OwnerCache[ItemId]) return BT_OwnerCache[ItemId];
-
-        // ── Try Koromons first ─────────────────────────────────────────────
-        Log('Fetching owners of item ' + ItemId + ' via Koromons…');
-        try {
-            const Data   = await GmFetch('https://www.koromons.xyz/api/items/' + ItemId + '/owners');
-            const Owners = (Array.isArray(Data) ? Data : Data.owners || []).map(O => ({
-                userId:       String(O.userId || O.id),
-                username:     O.username || O.name || String(O.userId || O.id),
-                userAssetIds: O.userAssetIds || O.assets || [O.userAssetId].filter(Boolean),
-            })).filter(O => O.userAssetIds.length > 0);
-            if (Owners.length > 0) {
-                BT_OwnerCache[ItemId] = Owners;
-                Log('Found ' + Owners.length + ' owners (Koromons)', '#4db87a');
-                return Owners;
-            }
-            Log('Koromons returned 0 owners — falling back to resellers API…', '#f59e0b');
-        } catch (E) {
-            Log('Koromons failed (' + E.message + ') — falling back to resellers API…', '#f59e0b');
+        if (BT_OwnerCache[ItemId]) {
+            Log('Using cached resellers (' + BT_OwnerCache[ItemId].length + ')', '#4db87a');
+            return BT_OwnerCache[ItemId];
         }
-
-        // ── Fallback: pekora resellers endpoint ────────────────────────────
-        // Returns sellers currently listing the item; each seller has a
-        // unique userAssetId that we can include in a trade offer.
         try {
-            Log('Fetching resellers of item ' + ItemId + '…');
+            Log('Fetching resellers of item ' + ItemId + ' from pekora…');
             let Cursor = null, All = [];
             do {
                 const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100&cursor=' + (Cursor || '');
@@ -108,7 +91,12 @@
                 Cursor = J.nextPageCursor || null;
             } while (Cursor);
 
-            // Deduplicate by seller id — keep only their cheapest listing
+            if (!All.length) {
+                Log('No resellers found — item may not be on sale.', '#f59e0b');
+                return [];
+            }
+
+            // Deduplicate by seller — keep their cheapest listing
             const ByUser = new Map();
             for (const Entry of All) {
                 const Uid = String(Entry.seller?.id);
@@ -127,7 +115,7 @@
             Log('Found ' + Owners.length + ' resellers to trade with', '#4db87a');
             return Owners;
         } catch (E) {
-            Log('Resellers API also failed: ' + E.message, '#e74c3c');
+            Log('Resellers fetch failed: ' + E.message, '#e74c3c');
             return [];
         }
     }
@@ -362,25 +350,33 @@
             TgtInfo.innerHTML = '';
             TgtInfo.appendChild(Span('Searching…', { fontSize: '12px', color: '#8b949e' }));
             try {
+                // Always ensure the Koromons item map is loaded first
+                const Kmap = NS.KCache || await (NS.GetKMap ? NS.GetKMap() : Promise.resolve({})) || {};
                 let ItemId = /^\d+$/.test(Q) ? Q : null;
                 if (!ItemId) {
-                    const Res   = await GmFetch('https://www.koromons.xyz/api/items?q=' + encodeURIComponent(Q));
-                    const Items = Array.isArray(Res) ? Res : (Res.items || []);
-                    if (!Items.length) throw new Error('No items found');
-                    ItemId         = String(Items[0].itemId);
-                    TargetItemName = Items[0].name || Items[0].itemName || Q;
+                    // Search by name in the already-loaded Kmap from /api/items
+                    const QL = Q.toLowerCase();
+                    const Match = Object.values(Kmap).find(I =>
+                        (I.Name || I.name || '').toLowerCase().includes(QL) ||
+                        (I.Acronym || I.acronym || '').toLowerCase() === QL
+                    );
+                    if (!Match) throw new Error('No item found for "' + Q + '" — try the item ID instead');
+                    ItemId         = String(Match.itemId || Match.ItemId);
+                    TargetItemName = Match.Name || Match.name || Q;
                 } else {
-                    const Kmap = NS.KCache || {};
-                    TargetItemName = Kmap[ItemId]?.name || 'Item ' + ItemId;
+                    TargetItemName = (Kmap[ItemId]?.Name || Kmap[ItemId]?.name) || 'Item ' + ItemId;
                 }
                 TargetItemId = ItemId;
-                const KItem  = (NS.KCache || {})[ItemId] || {};
+                const KItem  = Kmap[ItemId] || {};
                 TgtInfo.innerHTML = '';
+                const KVal    = KItem.Value  || KItem.value  || 0;
+                const KRAP    = KItem.RAP    || KItem.rap    || 0;
+                const KDemand = KItem.Demand || KItem.demand || '';
                 const IR = El('div', { display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '8px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap' });
                 IR.appendChild(Span(TargetItemName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
-                if (KItem.Value > 0) IR.appendChild(Span('Val: '     + Fmt(KItem.Value), { fontSize: '11px', color: '#4db87a',  fontWeight: '600' }));
-                if (KItem.RAP)       IR.appendChild(Span('RAP: '     + Fmt(KItem.RAP),   { fontSize: '11px', color: '#4a9fd4',  fontWeight: '600' }));
-                if (KItem.Demand)    IR.appendChild(Span('Demand: '  + KItem.Demand,      { fontSize: '11px', color: '#c9a84c'                    }));
+                if (KVal  > 0)  IR.appendChild(Span('Val: '    + Fmt(KVal),    { fontSize: '11px', color: '#4db87a', fontWeight: '600' }));
+                if (KRAP  > 0)  IR.appendChild(Span('RAP: '    + Fmt(KRAP),    { fontSize: '11px', color: '#4a9fd4', fontWeight: '600' }));
+                if (KDemand && KDemand !== 'None') IR.appendChild(Span('Demand: ' + KDemand, { fontSize: '11px', color: '#c9a84c' }));
                 TgtInfo.appendChild(IR);
                 UpdateRatioBar();
             } catch (E) {
@@ -407,7 +403,9 @@
                 if (I) OTotal += I.value > 0 ? I.value : I.rap;
             }
             const TItem = TargetItemId ? (Kmap[TargetItemId] || {}) : {};
-            const RVal  = TItem.Value > 0 ? TItem.Value : (TItem.RAP || 0);
+            const RVal  = (TItem.Value || TItem.value || 0) > 0
+                ? (TItem.Value || TItem.value)
+                : (TItem.RAP || TItem.rap || 0);
             const Ratio = RVal > 0 && OTotal > 0 ? (OTotal / RVal).toFixed(2) : '—';
             const RC    = Ratio !== '—' ? (parseFloat(Ratio) >= 1 ? '#4db87a' : parseFloat(Ratio) >= 0.7 ? '#f59e0b' : '#e74c3c') : '#8b949e';
             RatioOffer.textContent  = 'Offer: ' + Fmt(OTotal);
@@ -520,7 +518,9 @@
                 // Ratio filter
                 if (Opts.minRatio > 0) {
                     const TItem = Kmap[TargetItemId] || {};
-                    const RVal  = TItem.Value > 0 ? TItem.Value : (TItem.RAP || 0);
+                    const RVal  = (TItem.Value || TItem.value || 0) > 0
+                        ? (TItem.Value || TItem.value)
+                        : (TItem.RAP || TItem.rap || 0);
                     const Ratio = RVal > 0 ? OfferVal / RVal : 0;
                     if (Ratio < Opts.minRatio) { Log('Skip ' + Owner.username + ' — ratio ' + Ratio.toFixed(2) + 'x < min', '#555'); Skipped++; continue; }
                 }
