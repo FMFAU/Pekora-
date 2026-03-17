@@ -1,13 +1,13 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.3)
+//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.4)
 //  Exposes: window.PekoraPlus.BulkTrade
-//  Requires: pk-core.js, pk-toast.js already loaded
+//  Requires: pk-core.js, pk-toast.js, main script already loaded
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
     'use strict';
 
     const NS = (window.PekoraPlus = window.PekoraPlus || {});
-    const { El, Span, Fmt, GmFetch, Toast } = NS;
+    const { El, Span, Fmt, Toast } = NS;
 
     let BT_Running    = false;
     let BT_Abort      = false;
@@ -19,9 +19,9 @@
 
     // ── Logging ────────────────────────────────────────────────────────────
     function LogLine(Box, Text, Color) {
-        const D  = document.createElement('div');
+        const D = document.createElement('div');
         D.style.cssText = `color:${Color || '#8b949e'};font-size:11px;line-height:1.6;`;
-        const N  = new Date();
+        const N = new Date();
         const TS = `${String(N.getHours()).padStart(2,'0')}:${String(N.getMinutes()).padStart(2,'0')}:${String(N.getSeconds()).padStart(2,'0')}`;
         D.textContent = `[${TS}] ${Text}`;
         Box.appendChild(D);
@@ -36,12 +36,12 @@
             error:   { text: 'Error',      bg: '#7a1a1a' },
         };
         const S = M[State] || M.idle;
-        Btn.textContent   = S.text;
+        Btn.textContent      = S.text;
         Btn.style.background = S.bg;
-        Btn.disabled      = (State === 'running');
+        Btn.disabled         = (State === 'running');
     }
 
-    // ── SVG helper — accepts string or string[] for multi-path icons ───────
+    // ── SVG ────────────────────────────────────────────────────────────────
     function Svg(Paths, Size) {
         const S = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         S.setAttribute('width',  Size || '14');
@@ -55,8 +55,7 @@
         S.style.cssText = 'flex-shrink:0;vertical-align:middle;';
         (Array.isArray(Paths) ? Paths : [Paths]).forEach(D => {
             const P = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            P.setAttribute('d', D);
-            S.appendChild(P);
+            P.setAttribute('d', D); S.appendChild(P);
         });
         return S;
     }
@@ -66,69 +65,72 @@
     const I_SEARCH = ['M21 21l-4.35-4.35','M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'];
     const I_CHECK  = 'M20 6L9 17l-5-5';
 
-    // ── Koromons item map ──────────────────────────────────────────────────
-    // Resolution order:
-    //   1. NS.KCache  — already loaded by main script (fastest)
-    //   2. GmFetch    — GM_xmlhttpRequest wrapper from pk-core (crosses origin)
-    // The result is stored on NS.KCache so both modules share one copy.
-    async function GetKmap(Log) {
+    // ── Kmap — use the MAIN SCRIPT'S GetKMap function ──────────────────────
+    // NS.KCache is set by the main script after GetKMap() runs.
+    // NS.GetKMap is exposed via: Object.defineProperty / direct assignment in main.
+    // We call it here to ensure the map is loaded, then read NS.KCache.
+    async function EnsureKmap(Log) {
+        // Already loaded
         if (NS.KCache && Object.keys(NS.KCache).length > 0) {
             if (Log) Log('Using cached item map (' + Object.keys(NS.KCache).length + ' items)', '#555');
             return NS.KCache;
         }
-        if (Log) Log('Fetching item map from Koromons...');
-        try {
-            const Data = await GmFetch('https://www.koromons.xyz/api/items');
-            if (!Array.isArray(Data) || !Data.length) throw new Error('Empty or invalid response from /api/items');
-            const Map = {};
-            for (const Item of Data) Map[String(Item.itemId)] = Item;
-            NS.KCache = Map;
-            if (Log) Log('Item map loaded (' + Data.length + ' items)', '#4db87a');
-            return Map;
-        } catch (E) {
-            if (Log) Log('Failed to load item map: ' + E.message, '#e74c3c');
-            return {};
+        // The main script exposes GetKMap on the namespace
+        if (typeof NS.GetKMap === 'function') {
+            if (Log) Log('Fetching item map via NS.GetKMap...');
+            try {
+                const Map = await NS.GetKMap();
+                if (Map && Object.keys(Map).length > 0) {
+                    if (Log) Log('Item map loaded (' + Object.keys(Map).length + ' items)', '#4db87a');
+                    return Map;
+                }
+            } catch (E) {
+                if (Log) Log('NS.GetKMap failed: ' + E.message, '#e74c3c');
+            }
         }
+        // Last resort: NS.KCache may have been set by GetKMap above
+        if (NS.KCache && Object.keys(NS.KCache).length > 0) return NS.KCache;
+        if (Log) Log('WARNING: Item map empty. Check @connect koromons.xyz in userscript header.', '#e74c3c');
+        return {};
     }
 
-    // ── Inventory — full paginated load ───────────────────────────────────
+    // ── Inventory loader — full pagination ─────────────────────────────────
     async function LoadInventory(Log) {
         Log('Getting user ID...');
         try {
-            const Me = await fetch('/apisite/users/v1/users/authenticated', { credentials: 'include' }).then(R => R.json());
+            const MeResp = await fetch('/apisite/users/v1/users/authenticated', { credentials: 'include' });
+            if (!MeResp.ok) throw new Error('Auth HTTP ' + MeResp.status);
+            const Me = await MeResp.json();
             if (!Me.id) throw new Error('Not logged in');
             const Uid = Me.id;
+            Log('Loading inventory for UID ' + Uid + '...');
 
             let Cursor   = null;
             let AllItems = [];
             let Page     = 0;
 
-            Log('Fetching inventory page 1...');
             do {
-                // Build URL — always include cursor param, empty string on first page
-                // (some endpoints require the param to exist even if blank)
-                let Url = `/apisite/inventory/v1/users/${Uid}/assets/collectibles?sortOrder=Desc&limit=100&cursor=`;
-                if (Cursor) Url += encodeURIComponent(Cursor);
-
+                // Build URL - cursor param always present, empty string on first call
+                const Url = '/apisite/inventory/v1/users/' + Uid + '/assets/collectibles?sortOrder=Desc&limit=100&cursor=' + (Cursor ? encodeURIComponent(Cursor) : '');
                 const Resp = await fetch(Url, { credentials: 'include' });
                 if (!Resp.ok) throw new Error('Inventory HTTP ' + Resp.status);
                 const Json = await Resp.json();
 
-                const PageItems = Json.data || [];
+                if (!Json.data) throw new Error('No data in inventory response: ' + JSON.stringify(Json).slice(0, 200));
+
+                const PageItems = Json.data;
                 AllItems = AllItems.concat(PageItems);
                 Page++;
 
-                // nextPageCursor can be null, undefined, or "" — all mean done
-                const NextCursor = Json.nextPageCursor;
-                Cursor = (NextCursor && NextCursor !== '') ? NextCursor : null;
+                // nextPageCursor: treat null, undefined, and "" as done
+                const Next = Json.nextPageCursor;
+                Cursor = (Next != null && Next !== '') ? Next : null;
 
-                Log(`Page ${Page}: got ${PageItems.length} items (total ${AllItems.length})${Cursor ? ', fetching more...' : ', done.'}`);
+                Log('Page ' + Page + ': ' + PageItems.length + ' items (total: ' + AllItems.length + ')' + (Cursor ? ' — more pages...' : ' — done.'));
             } while (Cursor && Page < 20);
 
-            // Enrich with Koromons values
-            Log('Fetching Koromons values...');
-            const Kmap = await GetKmap(Log);
-
+            Log('Enriching with Koromons values...');
+            const Kmap = await EnsureKmap(null);
             const Inventory = AllItems.map(I => ({
                 userAssetId: I.userAssetId,
                 itemId:      String(I.assetId),
@@ -137,7 +139,7 @@
                 rap:         Kmap[String(I.assetId)]?.RAP   || I.recentAveragePrice || 0,
             }));
 
-            Log('Loaded ' + Inventory.length + ' tradable items', '#4db87a');
+            Log('Done — ' + Inventory.length + ' tradable items loaded', '#4db87a');
             return Inventory;
         } catch (E) {
             Log('Inventory load failed: ' + E.message, '#e74c3c');
@@ -155,17 +157,16 @@
             Log('Fetching resellers for item ' + ItemId + '...');
             let Cursor = null, All = [];
             do {
-                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100&cursor='
-                          + (Cursor ? encodeURIComponent(Cursor) : '');
+                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100&cursor=' + (Cursor ? encodeURIComponent(Cursor) : '');
                 const R = await fetch(Url, { credentials: 'include' });
                 if (!R.ok) throw new Error('HTTP ' + R.status);
                 const J = await R.json();
-                All    = All.concat(J.data || []);
+                All = All.concat(J.data || []);
                 const Next = J.nextPageCursor;
-                Cursor = (Next && Next !== '') ? Next : null;
+                Cursor = (Next != null && Next !== '') ? Next : null;
             } while (Cursor);
 
-            if (!All.length) { Log('No resellers found.', '#f59e0b'); return []; }
+            if (!All.length) { Log('No resellers found — item may not be on sale.', '#f59e0b'); return []; }
 
             // Collect all userAssetIds per seller
             const ByUser = new Map();
@@ -219,11 +220,11 @@
 
     // ── CSV export ─────────────────────────────────────────────────────────
     function ExportCsv(Rows) {
-        const Csv  = 'Timestamp,Mode,Target,UserID,Status,Detail\n'
-                   + Rows.map(R => [R.ts, R.mode, `"${R.target}"`, R.uid, R.status, `"${R.detail}"`].join(',')).join('\n');
-        const Url  = URL.createObjectURL(new Blob([Csv], { type: 'text/csv' }));
-        const A    = document.createElement('a');
-        A.href     = Url; A.download = 'pekora-bulk-trades.csv'; A.click();
+        const Csv = 'Timestamp,Mode,Target,UserID,Status,Detail\n'
+                  + Rows.map(R => [R.ts, R.mode, `"${R.target}"`, R.uid, R.status, `"${R.detail}"`].join(',')).join('\n');
+        const Url = URL.createObjectURL(new Blob([Csv], { type: 'text/csv' }));
+        const A   = document.createElement('a');
+        A.href = Url; A.download = 'pekora-bulk-trades.csv'; A.click();
         setTimeout(() => URL.revokeObjectURL(Url), 2000);
     }
 
@@ -239,7 +240,6 @@
             zIndex: '1000000', display: 'flex', alignItems: 'center', justifyContent: 'center',
         });
         Overlay.id = 'pk-bulktrade-panel';
-        // No click-outside close — use X button only
 
         const Panel = El('div', {
             background: '#161b22', border: '1px solid rgba(255,255,255,.12)',
@@ -249,19 +249,11 @@
         });
 
         // ── Header ────────────────────────────────────────────────────────
-        const Hdr = El('div', {
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.1)',
-            background: '#0d1117', flexShrink: '0',
-        });
+        const Hdr  = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117', flexShrink: '0' });
         const HdrL = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
         HdrL.appendChild(Span('Pekora+',    { fontSize: '13px', fontWeight: '700', color: 'var(--primary-color,#8A5149)' }));
         HdrL.appendChild(Span('Bulk Trade', { fontSize: '16px', fontWeight: '700', color: '#e6edf3' }));
-        const XBtn = El('button', {
-            background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px',
-            color: '#8b949e', cursor: 'pointer', width: '28px', height: '28px', padding: '0',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-        });
+        const XBtn = El('button', { background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', color: '#8b949e', cursor: 'pointer', width: '28px', height: '28px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
         XBtn.appendChild(Svg(I_X, '14'));
         XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); });
         Hdr.appendChild(HdrL); Hdr.appendChild(XBtn);
@@ -271,31 +263,19 @@
         const TabDefs = [{ label: 'Blast', icon: I_BOLT }, { label: 'Cancel Trades', icon: I_X }];
         const Pages   = [];
         const TabBtns = TabDefs.map((D, I) => {
-            const B = El('button', {
-                padding: '10px 20px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: '7px',
-                color: I === 0 ? '#e6edf3' : '#8b949e',
-                borderBottom: I === 0 ? '2px solid #238636' : '2px solid transparent',
-            });
-            B.appendChild(Svg(D.icon, '13'));
-            B.appendChild(document.createTextNode(D.label));
+            const B = El('button', { padding: '10px 20px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: '7px', color: I === 0 ? '#e6edf3' : '#8b949e', borderBottom: I === 0 ? '2px solid #238636' : '2px solid transparent' });
+            B.appendChild(Svg(D.icon, '13')); B.appendChild(document.createTextNode(D.label));
             TabBar.appendChild(B); return B;
         });
 
         const Content = El('div', { flex: '1', overflowY: 'auto', padding: '18px' });
 
-        // ── Section label helper ──────────────────────────────────────────
-        const SecLbl = (T, Mt) => {
-            const D = El('div', { fontSize: '11px', fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: '8px', marginTop: Mt || '0' });
-            D.textContent = T; return D;
-        };
+        const SecLbl = (T, Mt) => { const D = El('div', { fontSize: '11px', fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: '8px', marginTop: Mt || '0' }); D.textContent = T; return D; };
 
         // ══════════════════════════════════════════════════════════════════
         //  PAGE 0 — BLAST
         // ══════════════════════════════════════════════════════════════════
         const BlastPage = El('div', {});
-
-        // ── 1. Offer items ────────────────────────────────────────────────
         BlastPage.appendChild(SecLbl('1. Your Offer Items'));
 
         const InvRow     = El('div', { display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'center' });
@@ -305,13 +285,17 @@
         InvRow.appendChild(LoadInvBtn); InvRow.appendChild(InvStatus);
         BlastPage.appendChild(InvRow);
 
+        // Inline log for inventory loading progress
+        const InvLog = El('div', { background: '#0d1117', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', fontFamily: 'monospace', color: '#555', minHeight: '18px', marginBottom: '6px', display: 'none' });
+        BlastPage.appendChild(InvLog);
+
         const OfferGrid = El('div', { display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '48px', background: 'rgba(255,255,255,.03)', borderRadius: '5px', padding: '8px', border: '1px solid rgba(255,255,255,.07)' });
         const OfferPH   = Span('Click "Load My Inventory" then select up to 4 items to offer', { fontSize: '11px', color: '#555' });
         OfferGrid.appendChild(OfferPH);
         BlastPage.appendChild(OfferGrid);
 
-        let InvItems  = [];
-        let SelOffer  = new Set();
+        let InvItems = [];
+        let SelOffer = new Set();
 
         function RefreshOfferGrid() {
             OfferGrid.innerHTML = '';
@@ -321,8 +305,7 @@
                 if (!Item) continue;
                 const Chip = El('div', { display: 'flex', alignItems: 'center', gap: '5px', background: '#21262d', border: '1px solid #30363d', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', color: '#e6edf3', cursor: 'pointer', userSelect: 'none' });
                 Chip.title = 'Click to remove';
-                const NS2 = El('span', {}); NS2.textContent = Item.name;
-                NS2.style.cssText = 'max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                const NS2 = El('span', {}); NS2.textContent = Item.name; NS2.style.cssText = 'max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 Chip.appendChild(NS2);
                 Chip.appendChild(Span(' · ' + (Item.value > 0 ? Fmt(Item.value) : 'RAP ' + Fmt(Item.rap)), { color: '#4db87a', fontWeight: '700' }));
                 const XI = Svg(I_X, '10'); XI.style.cssText = 'margin-left:3px;color:#8b949e;';
@@ -332,21 +315,18 @@
             }
         }
 
+        // ── Inventory picker ──────────────────────────────────────────────
         function OpenPicker() {
             const Picker = El('div', { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.75)', zIndex: '1000001', display: 'flex', alignItems: 'center', justifyContent: 'center' });
             const Box    = El('div', { background: '#161b22', border: '1px solid rgba(255,255,255,.15)', borderRadius: '8px', width: '520px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,.9)' });
-
-            const PH2 = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117' });
+            const PH2    = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117' });
             PH2.appendChild(Span('Select Offer Items (max 4)', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' }));
             const PC = El('button', { background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '4px', color: '#8b949e', cursor: 'pointer', width: '26px', height: '26px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
             PC.appendChild(Svg(I_X, '13')); PC.addEventListener('click', () => Picker.remove());
             PH2.appendChild(PC); Box.appendChild(PH2);
-
             const PS = El('input', { padding: '8px 12px', background: '#21262d', color: '#e6edf3', border: 'none', borderBottom: '1px solid rgba(255,255,255,.1)', fontSize: '12px', outline: 'none', width: '100%', boxSizing: 'border-box' });
             PS.placeholder = 'Search items...'; Box.appendChild(PS);
-
             const PL = El('div', { flex: '1', overflowY: 'auto', padding: '8px' }); Box.appendChild(PL);
-
             const PF = El('div', { padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px' });
             const OkB = El('button', { padding: '6px 18px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#238636', border: '1px solid #2ea043', borderRadius: '5px', cursor: 'pointer' });
             OkB.textContent = 'Confirm'; OkB.addEventListener('click', () => { RefreshOfferGrid(); CalcRatio(); Picker.remove(); });
@@ -369,12 +349,11 @@
                     Row.appendChild(Lft); Row.appendChild(CkW);
                     Row.addEventListener('click', () => {
                         const K = String(I.userAssetId);
-                        if (SelOffer.has(K)) {
-                            SelOffer.delete(K); Row.style.background = 'transparent'; Row.style.border = '1px solid transparent'; CkW.innerHTML = '';
-                        } else {
+                        if (SelOffer.has(K)) { SelOffer.delete(K); Row.style.background = 'transparent'; Row.style.border = '1px solid transparent'; CkW.innerHTML = ''; }
+                        else {
                             if (SelOffer.size >= 4) { Toast('Max 4 offer items', 'warn'); return; }
                             SelOffer.add(K); Row.style.background = 'rgba(35,134,54,.2)'; Row.style.border = '1px solid #238636';
-                            CkW.innerHTML = ''; CkW.appendChild(Svg(I_CHECK, '14'));
+                            CkW.innerHTML = ''; const Ck = Svg(I_CHECK, '14'); Ck.style.color = '#2ea043'; CkW.appendChild(Ck);
                         }
                     });
                     PL.appendChild(Row);
@@ -385,26 +364,23 @@
             Picker.appendChild(Box); document.body.appendChild(Picker);
         }
 
-        // Inline log for inventory loading (uses InvStatus span)
         LoadInvBtn.addEventListener('click', async () => {
             LoadInvBtn.disabled = true; LoadInvBtn.textContent = 'Loading...';
-            InvStatus.textContent = ''; InvStatus.style.color = '#8b949e';
-
-            // Dedicated small log box that shows pagination progress
-            const TmpLog = (T, C) => { InvStatus.textContent = T; if (C) InvStatus.style.color = C; };
-
+            InvStatus.textContent = ''; InvLog.style.display = 'block'; InvLog.textContent = '';
+            const TmpLog = (T, C) => {
+                InvLog.textContent = T;
+                InvLog.style.color = C || '#555';
+            };
             InvItems = await LoadInventory(TmpLog);
-
+            InvLog.style.display = 'none';
             InvStatus.textContent = InvItems.length + ' items loaded';
             InvStatus.style.color = InvItems.length > 0 ? '#4db87a' : '#e74c3c';
-            LoadInvBtn.textContent = 'Reload Inventory';
-            LoadInvBtn.disabled    = false;
+            LoadInvBtn.textContent = 'Reload Inventory'; LoadInvBtn.disabled = false;
             if (InvItems.length) OpenPicker();
         });
 
         // ── 2. Target item ────────────────────────────────────────────────
         BlastPage.appendChild(SecLbl('2. Target Item', '14px'));
-
         const TgtRow = El('div', { display: 'flex', gap: '8px', marginBottom: '6px' });
         const TgtInp = El('input', { flex: '1', padding: '6px 12px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '13px', outline: 'none' });
         TgtInp.placeholder = 'Item name or ID...';
@@ -422,36 +398,39 @@
         async function DoSearch() {
             const Q = TgtInp.value.trim(); if (!Q) return;
             TgtInfo.innerHTML = '';
-            const Msg = Span('Loading item map...', { fontSize: '12px', color: '#8b949e' });
-            TgtInfo.appendChild(Msg);
+            const StatusMsg = Span('Loading item map...', { fontSize: '12px', color: '#8b949e' });
+            TgtInfo.appendChild(StatusMsg);
 
             try {
-                // GetKmap fetches https://www.koromons.xyz/api/items via GmFetch
-                const Kmap = await GetKmap();
+                // Use the main script's GetKMap — it uses GmFetch with correct @connect permissions
+                const Kmap = await EnsureKmap(null);
 
-                if (!Object.keys(Kmap).length) throw new Error('Item map is empty — GmFetch may have failed. Check @connect in userscript header includes koromons.xyz');
+                if (!Kmap || !Object.keys(Kmap).length) {
+                    throw new Error('Item map is empty — make sure the page has loaded fully and try again. If the issue persists, check @connect koromons.xyz is in the userscript header.');
+                }
 
-                Msg.textContent = 'Searching...';
+                StatusMsg.textContent = 'Searching ' + Object.keys(Kmap).length + ' items...';
 
                 let ItemId = null;
+
                 if (/^\d+$/.test(Q)) {
-                    // Direct ID lookup
+                    // Direct numeric ID
                     ItemId = Q;
-                    if (!Kmap[ItemId]) throw new Error('ID ' + ItemId + ' not in Koromons database');
+                    if (!Kmap[ItemId]) throw new Error('Item ID ' + ItemId + ' not found. Database has ' + Object.keys(Kmap).length + ' items.');
                     TgtName = Kmap[ItemId].Name || Kmap[ItemId].name || ('Item ' + ItemId);
                 } else {
-                    // Name search with priority: exact acronym > exact name > starts-with > contains
+                    // Name/acronym search with scoring
                     const QL = Q.toLowerCase();
                     let Best = null, BestScore = -1;
                     for (const [Id, Item] of Object.entries(Kmap)) {
                         const Name    = (Item.Name    || Item.name    || '').toLowerCase();
                         const Acronym = (Item.Acronym || Item.acronym || '').toLowerCase();
-                        if (Acronym === QL)                        { Best = [Id, Item]; break; }
-                        if (Name === QL       && BestScore < 3)    { Best = [Id, Item]; BestScore = 3; }
+                        if (Acronym && Acronym === QL)               { Best = [Id, Item]; break; }
+                        if (Name === QL              && BestScore < 3) { Best = [Id, Item]; BestScore = 3; }
                         else if (Name.startsWith(QL) && BestScore < 2) { Best = [Id, Item]; BestScore = 2; }
                         else if (Name.includes(QL)   && BestScore < 1) { Best = [Id, Item]; BestScore = 1; }
                     }
-                    if (!Best) throw new Error('No item found for "' + Q + '" — try the item ID');
+                    if (!Best) throw new Error('No item found for "' + Q + '". Try the item ID instead, or load the page first to populate the item cache.');
                     ItemId  = Best[0];
                     TgtName = Best[1].Name || Best[1].name || Q;
                 }
@@ -473,7 +452,7 @@
                 CalcRatio();
             } catch (E) {
                 TgtInfo.innerHTML = '';
-                TgtInfo.appendChild(Span('Not found: ' + E.message, { fontSize: '12px', color: '#e74c3c' }));
+                TgtInfo.appendChild(Span('Error: ' + E.message, { fontSize: '12px', color: '#e74c3c' }));
             }
         }
 
@@ -489,8 +468,8 @@
         BlastPage.appendChild(RBar);
 
         function CalcRatio() {
-            const Kmap  = NS.KCache || {};
-            let OTotal  = 0;
+            const Kmap = NS.KCache || {};
+            let OTotal = 0;
             for (const UAId of SelOffer) {
                 const I = InvItems.find(X => String(X.userAssetId) === String(UAId));
                 if (I) OTotal += I.value > 0 ? I.value : I.rap;
@@ -499,9 +478,9 @@
             const RVal  = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
             const Ratio = (RVal > 0 && OTotal > 0) ? (OTotal / RVal).toFixed(2) : '—';
             const RC    = Ratio !== '—' ? (parseFloat(Ratio) >= 1 ? '#4db87a' : parseFloat(Ratio) >= 0.7 ? '#f59e0b' : '#e74c3c') : '#8b949e';
-            RO.textContent = 'Offer: '        + Fmt(OTotal);
+            RO.textContent = 'Offer: '         + Fmt(OTotal);
             RR.textContent = ' · Requesting: ' + Fmt(RVal);
-            RV.textContent = ' · Ratio: '     + Ratio + 'x';
+            RV.textContent = ' · Ratio: '      + Ratio + 'x';
             RV.style.color = RC;
         }
 
@@ -511,12 +490,12 @@
         const Opts = { delaySec: 5, maxUsers: 50, minRatio: 0, skipDupUid: true, skipPending: false, multiItems: false };
 
         function NumRow(Lbl, Gv, Sv, Min, Max, Step) {
-            const Wr  = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
+            const Wr = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
             Wr.appendChild(Span(Lbl, { fontSize: '11px', color: '#8b949e' }));
-            const Cr  = El('div', { display: 'flex', alignItems: 'center', gap: '6px' });
+            const Cr = El('div', { display: 'flex', alignItems: 'center', gap: '6px' });
             const MkB = T => { const B = El('button', { width: '24px', height: '24px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '15px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.textContent = T; return B; };
-            const Mn  = MkB('−'), Pl = MkB('+');
-            const Dp  = El('span', { minWidth: '36px', textAlign: 'center', fontSize: '13px', fontWeight: '700', color: '#e6edf3' }); Dp.textContent = Gv();
+            const Mn = MkB('−'), Pl = MkB('+');
+            const Dp = El('span', { minWidth: '36px', textAlign: 'center', fontSize: '13px', fontWeight: '700', color: '#e6edf3' }); Dp.textContent = Gv();
             Mn.addEventListener('click', () => { const V = Math.max(Min, Gv() - Step); Sv(V); Dp.textContent = V; });
             Pl.addEventListener('click',  () => { const V = Math.min(Max, Gv() + Step); Sv(V); Dp.textContent = V; });
             Cr.appendChild(Mn); Cr.appendChild(Dp); Cr.appendChild(Pl); Wr.appendChild(Cr); return Wr;
@@ -530,7 +509,7 @@
                 const V = !Gv(); Sv(V);
                 Box.style.background = V ? '#238636' : '#21262d';
                 Box.style.border     = '1px solid ' + (V ? '#2ea043' : 'rgba(255,255,255,.2)');
-                Box.innerHTML        = '';
+                Box.innerHTML = '';
                 if (V) { const C = Svg(I_CHECK, '11'); C.style.color = '#fff'; Box.appendChild(C); }
             });
             Wr.appendChild(Box); Wr.appendChild(Span(Lbl, { fontSize: '12px', color: '#ccc' })); return Wr;
@@ -558,10 +537,8 @@
         const BF      = El('div', { display: 'flex', gap: '8px', alignItems: 'center' });
         const SendBtn = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#238636', border: '1px solid #2ea043', borderRadius: '6px', cursor: 'pointer' });
         SendBtn.textContent = 'Send All Trades'; SendBtn.dataset.idleLabel = 'Send All Trades';
-        const StopBtn = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' });
-        StopBtn.textContent = 'Stop';
-        const CsvBtn  = El('button', { padding: '9px 12px', fontSize: '12px', fontWeight: '600', color: '#8b949e', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '6px', cursor: 'pointer' });
-        CsvBtn.textContent = 'CSV';
+        const StopBtn = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' }); StopBtn.textContent = 'Stop';
+        const CsvBtn  = El('button', { padding: '9px 12px', fontSize: '12px', fontWeight: '600', color: '#8b949e', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '6px', cursor: 'pointer' }); CsvBtn.textContent = 'CSV';
 
         let TradeLog = [];
         CsvBtn.addEventListener('click',  () => { if (!TradeLog.length) { Toast('No trades to export', 'warn'); return; } ExportCsv(TradeLog); });
@@ -571,16 +548,12 @@
             if (BT_Running) return;
             if (!SelOffer.size) { Toast('Select at least one offer item', 'warn'); return; }
             if (!TgtId)         { Toast('Set a target item first', 'warn'); return; }
-
             BT_Running = true; BT_Abort = false; TradeLog = [];
             SetBtnState(SendBtn, 'running'); LogBox.innerHTML = '';
 
             const MyUAIds  = [...SelOffer].map(Number);
             const Kmap     = NS.KCache || {};
-            const OfferVal = MyUAIds.reduce((S, UAId) => {
-                const I = InvItems.find(X => X.userAssetId === UAId);
-                return S + (I ? (I.value > 0 ? I.value : I.rap) : 0);
-            }, 0);
+            const OfferVal = MyUAIds.reduce((S, UAId) => { const I = InvItems.find(X => X.userAssetId === UAId); return S + (I ? (I.value > 0 ? I.value : I.rap) : 0); }, 0);
 
             Log('Target: ' + TgtName + ' (ID ' + TgtId + ')');
             Log('Fetching resellers...');
@@ -596,16 +569,14 @@
             for (let Idx = 0; Idx < Capped.length; Idx++) {
                 if (BT_Abort) break;
                 const Owner = Capped[Idx];
-
                 if (Opts.minRatio > 0) {
-                    const TK    = Kmap[TgtId] || {};
-                    const RVal  = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
-                    const Ratio = RVal > 0 ? OfferVal / RVal : 0;
-                    if (Ratio < Opts.minRatio) { Log('Skip ' + Owner.username + ' ratio ' + Ratio.toFixed(2) + 'x', '#555'); Skipped++; continue; }
+                    const TK = Kmap[TgtId] || {};
+                    const RV2 = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
+                    const R2  = RV2 > 0 ? OfferVal / RV2 : 0;
+                    if (R2 < Opts.minRatio) { Log('Skip ' + Owner.username + ' ratio ' + R2.toFixed(2) + 'x', '#555'); Skipped++; continue; }
                 }
                 if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup ' + Owner.username, '#555'); Skipped++; continue; }
                 SeenUids.add(Owner.userId);
-
                 const TheirUAIds = Opts.multiItems ? Owner.userAssetIds.slice(0, 4) : [Owner.userAssetIds[0]];
                 try {
                     await SendTrade(MyUAIds, Owner.userId, TheirUAIds);
@@ -619,8 +590,7 @@
                 }
                 if (!BT_Abort && Idx < Capped.length - 1) { Log('Waiting ' + Opts.delaySec + 's...', '#555'); await Sleep(Opts.delaySec * 1000); }
             }
-
-            const Summ = `Done — Sent: ${Sent}  Skipped: ${Skipped}  Failed: ${Failed}`;
+            const Summ = 'Done — Sent: ' + Sent + '  Skipped: ' + Skipped + '  Failed: ' + Failed;
             Log(Summ, '#4db87a'); Toast(Summ, 'success');
             SetBtnState(SendBtn, 'done'); BT_Running = false;
         });
@@ -635,11 +605,8 @@
         CancelPage.appendChild(SecLbl('Outbound Trades'));
 
         const CTR    = El('div', { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' });
-        const LTBtn  = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer' });
-        LTBtn.textContent = 'Load Trades';
-        const CFInp  = El('input', { flex: '1', minWidth: '120px', padding: '5px 10px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '12px', outline: 'none' });
-        CFInp.placeholder = 'Filter by username...';
-
+        const LTBtn  = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer' }); LTBtn.textContent = 'Load Trades';
+        const CFInp  = El('input', { flex: '1', minWidth: '120px', padding: '5px 10px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '12px', outline: 'none' }); CFInp.placeholder = 'Filter by username...';
         const AR     = El('div', { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#8b949e' });
         let CAgeDays = 7;
         const MkAB   = T => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = T; return B; };
@@ -651,16 +618,15 @@
         CTR.appendChild(LTBtn); CTR.appendChild(CFInp); CTR.appendChild(AR);
         CancelPage.appendChild(CTR);
 
-        const SR    = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' });
-        const SBox  = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: '#238636', border: '1px solid #2ea043', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-        const SCk   = Svg(I_CHECK, '11'); SCk.style.color = '#fff'; SBox.appendChild(SCk);
-        const SCnt  = Span('', { fontSize: '11px', color: '#8b949e', marginLeft: 'auto' });
+        const SR   = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' });
+        const SBox = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: '#238636', border: '1px solid #2ea043', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        const SCk  = Svg(I_CHECK, '11'); SCk.style.color = '#fff'; SBox.appendChild(SCk);
+        const SCnt = Span('', { fontSize: '11px', color: '#8b949e', marginLeft: 'auto' });
         SR.appendChild(SBox); SR.appendChild(Span('Select all', { fontSize: '12px', color: '#ccc' })); SR.appendChild(SCnt);
         CancelPage.appendChild(SR);
 
         const TList   = El('div', { height: '160px', overflowY: 'auto', background: '#0d1117', borderRadius: '5px', padding: '4px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
-        let OBTrades  = [];
-        let SelT      = new Set();
+        let OBTrades  = [], SelT = new Set();
         CancelPage.appendChild(TList);
 
         function RenderCancelList(F) {
@@ -673,9 +639,7 @@
                 const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(220,38,38,.15)' : 'transparent', border: '1px solid ' + (Sel ? '#dc2626' : 'transparent'), marginBottom: '2px' });
                 const CB  = El('div', { width: '14px', height: '14px', borderRadius: '3px', flexShrink: '0', background: Sel ? '#dc2626' : '#21262d', border: '1px solid ' + (Sel ? '#dc2626' : 'rgba(255,255,255,.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
                 if (Sel) { const C = Svg(I_CHECK, '10'); C.style.color = '#fff'; CB.appendChild(C); }
-                Row.appendChild(CB);
-                Row.appendChild(Span(T.pn, { flex: '1', fontSize: '12px', color: '#e6edf3' }));
-                Row.appendChild(Span('sent ' + new Date(T.sa).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#555' }));
+                Row.appendChild(CB); Row.appendChild(Span(T.pn, { flex: '1', fontSize: '12px', color: '#e6edf3' })); Row.appendChild(Span('sent ' + new Date(T.sa).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#555' }));
                 Row.addEventListener('click', () => { if (SelT.has(T.id)) SelT.delete(T.id); else SelT.add(T.id); RenderCancelList(CFInp.value); });
                 TList.appendChild(Row);
             });
@@ -701,7 +665,9 @@
                 do {
                     const R = await fetch('/apisite/trades/v1/trades/outbound?limit=100&sortOrder=Desc' + (Cur ? '&cursor=' + Cur : ''), { credentials: 'include' }).then(R2 => R2.json());
                     All = All.concat(R.data || []);
-                    Cur = R.nextPageCursor || null; Pg++;
+                    const Next = R.nextPageCursor;
+                    Cur = (Next != null && Next !== '') ? Next : null;
+                    Pg++;
                 } while (Cur && Pg <= 10);
                 OBTrades = All.map(T => ({ id: T.id, pn: T.user?.name || String(T.user?.id || '?'), sa: T.created }));
                 const Cut = CAgeDays * 86400000;
@@ -714,25 +680,24 @@
             LTBtn.disabled = false;
         });
 
-        const CDR  = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#8b949e' });
+        const CDR = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#8b949e' });
         CDR.appendChild(Span('Delay between cancels:'));
-        let CDel   = 2;
+        let CDel  = 2;
         const MkCB = T => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = T; return B; };
-        const CMn  = MkCB('−'), CPl = MkCB('+');
-        const CD   = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' }); CD.textContent = '2s';
-        CMn.addEventListener('click', () => { CDel = Math.max(1, CDel-1); CD.textContent = CDel+'s'; });
-        CPl.addEventListener('click',  () => { CDel = Math.min(30,CDel+1); CD.textContent = CDel+'s'; });
-        CDR.appendChild(CMn); CDR.appendChild(CD); CDR.appendChild(CPl); CancelPage.appendChild(CDR);
+        const CMn = MkCB('−'), CPl = MkCB('+');
+        const CD  = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' }); CD.textContent = '2s';
+        CMn.addEventListener('click', () => { CDel = Math.max(1,  CDel - 1); CD.textContent = CDel + 's'; });
+        CPl.addEventListener('click',  () => { CDel = Math.min(30, CDel + 1); CD.textContent = CDel + 's'; });
+        CDR.appendChild(CMn); CDR.appendChild(CD); CDR.appendChild(CPl);
+        CancelPage.appendChild(CDR);
 
         const CLBox = El('div', { background: '#0d1117', borderRadius: '5px', padding: '8px 10px', height: '80px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
         const CLog  = (T, C) => LogLine(CLBox, T, C);
         CancelPage.appendChild(CLBox);
 
         const CF      = El('div', { display: 'flex', gap: '8px' });
-        const DCBtn   = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' });
-        DCBtn.textContent = 'Cancel Selected';
-        const CSBtn   = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#333', border: '1px solid rgba(255,255,255,.2)', borderRadius: '6px', cursor: 'pointer' });
-        CSBtn.textContent = 'Stop';
+        const DCBtn   = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' }); DCBtn.textContent = 'Cancel Selected';
+        const CSBtn   = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#333', border: '1px solid rgba(255,255,255,.2)', borderRadius: '6px', cursor: 'pointer' }); CSBtn.textContent = 'Stop';
         CSBtn.addEventListener('click', () => { CancelAbort = true; CLog('Stopped.', '#e74c3c'); DCBtn.disabled = false; DCBtn.textContent = 'Cancel Selected'; CancelRunning = false; });
 
         DCBtn.addEventListener('click', async () => {
@@ -740,8 +705,7 @@
             if (!SelT.size) { Toast('No trades selected', 'warn'); return; }
             CancelRunning = true; CancelAbort = false;
             DCBtn.textContent = 'Running...'; DCBtn.disabled = true; CLBox.innerHTML = '';
-            const Ids = [...SelT];
-            CLog('Cancelling ' + Ids.length + ' trades...', '#4a9fd4');
+            const Ids = [...SelT]; CLog('Cancelling ' + Ids.length + ' trades...', '#4a9fd4');
             let Done = 0, Fail = 0;
             for (let I = 0; I < Ids.length; I++) {
                 if (CancelAbort) break;
@@ -775,6 +739,14 @@
         Panel.appendChild(Hdr); Panel.appendChild(TabBar); Panel.appendChild(Content);
         Overlay.appendChild(Panel); document.body.appendChild(Overlay);
     }
+
+    // ── Also expose GetKMap on NS so the module can call it ───────────────
+    // The main script defines GetKMap locally but we need it here.
+    // We hook into the NS object — if the main script sets NS.KCache,
+    // we can read it. If not yet set, we call NS.GetKMap if available.
+    // IMPORTANT: The main userscript.js must also do:
+    //   window.PekoraPlus.GetKMap = GetKMap;
+    // Add that one line after the GetKMap definition in the main script.
 
     NS.BulkTrade = { OpenPanel: BuildBulkTradePanel };
 
