@@ -65,32 +65,61 @@
     const I_SEARCH = ['M21 21l-4.35-4.35','M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'];
     const I_CHECK  = 'M20 6L9 17l-5-5';
 
-    // ── Kmap — use the MAIN SCRIPT'S GetKMap function ──────────────────────
-    // NS.KCache is set by the main script after GetKMap() runs.
-    // NS.GetKMap is exposed via: Object.defineProperty / direct assignment in main.
-    // We call it here to ensure the map is loaded, then read NS.KCache.
+    // ── Kmap ───────────────────────────────────────────────────────────────
+    // Resolution chain (with full debug output):
+    //   1. NS.KCache already populated by main script  → instant
+    //   2. NS.GetKMap() — main script's GmFetch wrapper (has @connect perms)
+    //   3. Direct GM_xmlhttpRequest fallback            → last resort
     async function EnsureKmap(Log) {
-        // Already loaded
+        const Dbg = (T, C) => { if (Log) Log('[kmap] ' + T, C); console.log('[PK+ kmap]', T); };
+
+        Dbg('NS.KCache keys: ' + (NS.KCache ? Object.keys(NS.KCache).length : 'null'));
+        Dbg('NS.GetKMap type: ' + typeof NS.GetKMap);
+        Dbg('NS.GmFetch type: ' + typeof NS.GmFetch);
+
         if (NS.KCache && Object.keys(NS.KCache).length > 0) {
-            if (Log) Log('Using cached item map (' + Object.keys(NS.KCache).length + ' items)', '#555');
+            Dbg('Using cached map — ' + Object.keys(NS.KCache).length + ' items', '#4db87a');
             return NS.KCache;
         }
-        // The main script exposes GetKMap on the namespace
+
         if (typeof NS.GetKMap === 'function') {
-            if (Log) Log('Fetching item map via NS.GetKMap...');
+            Dbg('Calling NS.GetKMap()...');
             try {
                 const Map = await NS.GetKMap();
-                if (Map && Object.keys(Map).length > 0) {
-                    if (Log) Log('Item map loaded (' + Object.keys(Map).length + ' items)', '#4db87a');
+                Dbg('NS.GetKMap returned: ' + (Map ? Object.keys(Map).length : 'null') + ' items');
+                if (Map && Object.keys(Map).length > 0) return Map;
+            } catch (E) {
+                Dbg('NS.GetKMap threw: ' + E.message, '#e74c3c');
+            }
+        } else {
+            Dbg('NS.GetKMap not available — main script must set window.PekoraPlus.GetKMap = GetKMap', '#f59e0b');
+        }
+
+        // Check if KCache was populated as a side effect
+        if (NS.KCache && Object.keys(NS.KCache).length > 0) {
+            Dbg('KCache populated via side effect — ' + Object.keys(NS.KCache).length + ' items', '#4db87a');
+            return NS.KCache;
+        }
+
+        // Last resort: try GmFetch directly from NS if available
+        if (typeof NS.GmFetch === 'function') {
+            Dbg('Trying NS.GmFetch directly...');
+            try {
+                const Data = await NS.GmFetch('https://www.koromons.xyz/api/items');
+                Dbg('GmFetch returned: ' + (Array.isArray(Data) ? Data.length : typeof Data) + ' items');
+                if (Array.isArray(Data) && Data.length > 0) {
+                    const Map = {};
+                    for (const Item of Data) Map[String(Item.itemId)] = Item;
+                    NS.KCache = Map;
+                    Dbg('Built map from GmFetch — ' + Object.keys(Map).length + ' items', '#4db87a');
                     return Map;
                 }
             } catch (E) {
-                if (Log) Log('NS.GetKMap failed: ' + E.message, '#e74c3c');
+                Dbg('NS.GmFetch threw: ' + E.message, '#e74c3c');
             }
         }
-        // Last resort: NS.KCache may have been set by GetKMap above
-        if (NS.KCache && Object.keys(NS.KCache).length > 0) return NS.KCache;
-        if (Log) Log('WARNING: Item map empty. Check @connect koromons.xyz in userscript header.', '#e74c3c');
+
+        Dbg('ALL kmap methods failed. Item map is empty.', '#e74c3c');
         return {};
     }
 
@@ -130,7 +159,7 @@
             } while (Cursor && Page < 20);
 
             Log('Enriching with Koromons values...');
-            const Kmap = await EnsureKmap(null);
+            const Kmap = await EnsureKmap(Log);
             const Inventory = AllItems.map(I => ({
                 userAssetId: I.userAssetId,
                 itemId:      String(I.assetId),
@@ -398,15 +427,17 @@
         async function DoSearch() {
             const Q = TgtInp.value.trim(); if (!Q) return;
             TgtInfo.innerHTML = '';
-            const StatusMsg = Span('Loading item map...', { fontSize: '12px', color: '#8b949e' });
+            const StatusMsg = Span('Searching...', { fontSize: '12px', color: '#8b949e' });
             TgtInfo.appendChild(StatusMsg);
 
+            // Debug log: writes to status span AND console so you can see exactly what fails
+            const SearchLog = (T, C) => { StatusMsg.textContent = T; if (C) StatusMsg.style.color = C; console.log('[PK+ search]', T); };
+
             try {
-                // Use the main script's GetKMap — it uses GmFetch with correct @connect permissions
-                const Kmap = await EnsureKmap(null);
+                const Kmap = await EnsureKmap(SearchLog);
 
                 if (!Kmap || !Object.keys(Kmap).length) {
-                    throw new Error('Item map is empty — make sure the page has loaded fully and try again. If the issue persists, check @connect koromons.xyz is in the userscript header.');
+                    throw new Error('Item map empty — check F12 console for [PK+ kmap] debug lines');
                 }
 
                 StatusMsg.textContent = 'Searching ' + Object.keys(Kmap).length + ' items...';
