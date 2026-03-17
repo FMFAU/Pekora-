@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.5)
+//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v2.0)
 //  Exposes: window.PekoraPlus.BulkTrade
 //  Requires: pk-core.js, pk-toast.js, main script already loaded
 // ════════════════════════════════════════════════════════════════════════════
@@ -17,13 +17,52 @@
 
     const Sleep = Ms => new Promise(R => setTimeout(R, Ms));
 
+    // ── GM fetch wrapper — uses GM_xmlhttpRequest so cookies are sent properly ──
+    function GmGet(Url) {
+        return new Promise((Res, Rej) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: Url,
+                withCredentials: true,
+                headers: { 'Accept': 'application/json' },
+                onload: R => {
+                    console.log('[PK+ GmGet]', Url, '→', R.status);
+                    if (R.status >= 200 && R.status < 300) {
+                        try { Res(JSON.parse(R.responseText)); }
+                        catch (E) { Rej(new Error('JSON parse error: ' + E.message)); }
+                    } else {
+                        Rej(new Error('HTTP ' + R.status + ' — ' + R.responseText.slice(0, 200)));
+                    }
+                },
+                onerror: E => Rej(new Error('Network error: ' + JSON.stringify(E))),
+            });
+        });
+    }
+
+    function GmPost(Url, Body, ExtraHeaders) {
+        return new Promise((Res, Rej) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: Url,
+                withCredentials: true,
+                headers: Object.assign({ 'Content-Type': 'application/json', 'Accept': 'application/json' }, ExtraHeaders || {}),
+                data: JSON.stringify(Body),
+                onload: R => {
+                    console.log('[PK+ GmPost]', Url, '→', R.status, R.responseText.slice(0, 200));
+                    Res({ status: R.status, text: R.responseText, headers: R.responseHeaders });
+                },
+                onerror: E => Rej(new Error('Network error: ' + JSON.stringify(E))),
+            });
+        });
+    }
+
     // ── Logging ────────────────────────────────────────────────────────────
     function LogLine(Box, Text, Color) {
         const D = document.createElement('div');
-        D.style.cssText = `color:${Color || '#8b949e'};font-size:11px;line-height:1.6;`;
+        D.style.cssText = 'color:' + (Color || '#8b949e') + ';font-size:11px;line-height:1.6;font-family:monospace;';
         const N = new Date();
-        const TS = `${String(N.getHours()).padStart(2,'0')}:${String(N.getMinutes()).padStart(2,'0')}:${String(N.getSeconds()).padStart(2,'0')}`;
-        D.textContent = `[${TS}] ${Text}`;
+        const TS = String(N.getHours()).padStart(2,'0') + ':' + String(N.getMinutes()).padStart(2,'0') + ':' + String(N.getSeconds()).padStart(2,'0');
+        D.textContent = '[' + TS + '] ' + Text;
         Box.appendChild(D);
         Box.scrollTop = Box.scrollHeight;
     }
@@ -31,7 +70,7 @@
     function SetBtnState(Btn, State) {
         const M = {
             idle:    { text: Btn.dataset.idleLabel || 'Send All Trades', bg: '#1a7f37' },
-            running: { text: 'Running...', bg: '#333'    },
+            running: { text: 'Running...', bg: '#333' },
             done:    { text: 'Done',       bg: '#1a3d26' },
             error:   { text: 'Error',      bg: '#7a1a1a' },
         };
@@ -55,86 +94,44 @@
         S.style.cssText = 'flex-shrink:0;vertical-align:middle;';
         (Array.isArray(Paths) ? Paths : [Paths]).forEach(D => {
             const P = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            P.setAttribute('d', D); S.appendChild(P);
+            P.setAttribute('d', D);
+            S.appendChild(P);
         });
         return S;
     }
 
     const I_BOLT   = 'M13 2L3 14h9l-1 8 10-12h-9l1-8z';
-    const I_X      = ['M18 6L6 18','M6 6l12 12'];
-    const I_SEARCH = ['M21 21l-4.35-4.35','M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'];
+    const I_X      = ['M18 6L6 18', 'M6 6l12 12'];
+    const I_SEARCH = ['M21 21l-4.35-4.35', 'M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'];
     const I_CHECK  = 'M20 6L9 17l-5-5';
-    const I_CANCEL = ['M18 6L6 18','M6 6l12 12'];
-    const I_PACK   = ['M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z'];
 
     // ── Kmap ───────────────────────────────────────────────────────────────
-    // Resolution chain (with full debug output):
-    //   1. NS.KCache already populated by main script  → instant
-    //   2. NS.GetKMap() — main script's GmFetch wrapper (has @connect perms)
-    //   3. Direct GM_xmlhttpRequest fallback            → last resort
     async function EnsureKmap(Log) {
-        const Dbg = (T, C) => { if (Log) Log('[kmap] ' + T, C); console.log('[PK+ kmap]', T); };
-
-        Dbg('NS.KCache keys: ' + (NS.KCache ? Object.keys(NS.KCache).length : 'null'));
-        Dbg('NS.GetKMap type: ' + typeof NS.GetKMap);
-        Dbg('NS.GmFetch type: ' + typeof NS.GmFetch);
-
         if (NS.KCache && Object.keys(NS.KCache).length > 0) {
-            Dbg('Using cached map — ' + Object.keys(NS.KCache).length + ' items', '#4db87a');
+            if (Log) Log('Using cached kmap — ' + Object.keys(NS.KCache).length + ' items', '#4db87a');
             return NS.KCache;
         }
-
         if (typeof NS.GetKMap === 'function') {
-            Dbg('Calling NS.GetKMap()...');
+            if (Log) Log('Loading item map from Koromons...');
             try {
                 const Map = await NS.GetKMap();
-                Dbg('NS.GetKMap returned: ' + (Map ? Object.keys(Map).length : 'null') + ' items');
-                if (Map && Object.keys(Map).length > 0) return Map;
-            } catch (E) {
-                Dbg('NS.GetKMap threw: ' + E.message, '#e74c3c');
-            }
-        } else {
-            Dbg('NS.GetKMap not available — main script must set window.PekoraPlus.GetKMap = GetKMap', '#f59e0b');
-        }
-
-        // Check if KCache was populated as a side effect
-        if (NS.KCache && Object.keys(NS.KCache).length > 0) {
-            Dbg('KCache populated via side effect — ' + Object.keys(NS.KCache).length + ' items', '#4db87a');
-            return NS.KCache;
-        }
-
-        // Last resort: try GmFetch directly from NS if available
-        if (typeof NS.GmFetch === 'function') {
-            Dbg('Trying NS.GmFetch directly...');
-            try {
-                const Data = await NS.GmFetch('https://www.koromons.xyz/api/items');
-                Dbg('GmFetch returned: ' + (Array.isArray(Data) ? Data.length : typeof Data) + ' items');
-                if (Array.isArray(Data) && Data.length > 0) {
-                    const Map = {};
-                    for (const Item of Data) Map[String(Item.itemId)] = Item;
-                    NS.KCache = Map;
-                    Dbg('Built map from GmFetch — ' + Object.keys(Map).length + ' items', '#4db87a');
+                if (Map && Object.keys(Map).length > 0) {
+                    if (Log) Log('Item map loaded — ' + Object.keys(Map).length + ' items', '#4db87a');
                     return Map;
                 }
             } catch (E) {
-                Dbg('NS.GmFetch threw: ' + E.message, '#e74c3c');
+                if (Log) Log('GetKMap failed: ' + E.message, '#e74c3c');
             }
         }
-
-        Dbg('ALL kmap methods failed. Item map is empty.', '#e74c3c');
+        if (Log) Log('Item map unavailable — values will not show', '#f59e0b');
         return {};
     }
 
-    // ── Inventory loader — full pagination ─────────────────────────────────
+    // ── Inventory loader ───────────────────────────────────────────────────
     async function LoadInventory(Log) {
         Log('Getting user ID...');
         try {
-            console.log('[PK+ Inventory] fetching authenticated user...');
-            const MeResp = await fetch('/apisite/users/v1/users/authenticated', { credentials: 'include' });
-            console.log('[PK+ Inventory] auth status:', MeResp.status);
-            if (!MeResp.ok) throw new Error('Auth HTTP ' + MeResp.status);
-            const Me = await MeResp.json();
-            console.log('[PK+ Inventory] authenticated user id:', Me.id);
+            const Me = await GmGet('https://www.pekora.zip/apisite/users/v1/users/authenticated');
             if (!Me.id) throw new Error('Not logged in');
             const Uid = Me.id;
             Log('Loading inventory for UID ' + Uid + '...');
@@ -144,26 +141,17 @@
             let Page     = 0;
 
             do {
-                // Omit cursor param entirely on first page — some APIs reject cursor= (empty string)
                 const CursorPart = (Cursor != null && Cursor !== '') ? '&cursor=' + encodeURIComponent(Cursor) : '';
-                const Url = '/apisite/inventory/v1/users/' + Uid + '/assets/collectibles?sortOrder=Desc&limit=100' + CursorPart;
-                console.log('[PK+ Inventory] fetching page', Page + 1, ':', Url);
-                const Resp = await fetch(Url, { credentials: 'include' });
-                console.log('[PK+ Inventory] page', Page + 1, 'status:', Resp.status);
-                if (!Resp.ok) throw new Error('Inventory HTTP ' + Resp.status);
-                const Json = await Resp.json();
+                const Url = 'https://www.pekora.zip/apisite/inventory/v1/users/' + Uid + '/assets/collectibles?sortOrder=Desc&limit=100' + CursorPart;
+                const Json = await GmGet(Url);
 
-                if (!Json.data) throw new Error('No data in inventory response: ' + JSON.stringify(Json).slice(0, 200));
+                if (!Json.data) throw new Error('No data field in response');
 
-                const PageItems = Json.data;
-                AllItems = AllItems.concat(PageItems);
+                AllItems = AllItems.concat(Json.data);
                 Page++;
-
-                // nextPageCursor: treat null, undefined, and "" as done
                 const Next = Json.nextPageCursor;
                 Cursor = (Next != null && Next !== '') ? Next : null;
-
-                Log('Page ' + Page + ': ' + PageItems.length + ' items (total: ' + AllItems.length + ')' + (Cursor ? ' — more pages...' : ' — done.'));
+                Log('Page ' + Page + ': ' + Json.data.length + ' items (total: ' + AllItems.length + ')' + (Cursor ? ' — more...' : ' — done.'));
             } while (Cursor && Page < 50);
 
             Log('Enriching with Koromons values...');
@@ -172,62 +160,55 @@
                 userAssetId: I.userAssetId,
                 itemId:      String(I.assetId),
                 name:        I.name,
-                value:       Kmap[String(I.assetId)]?.Value || 0,
-                rap:         Kmap[String(I.assetId)]?.RAP   || I.recentAveragePrice || 0,
+                value:       (Kmap[String(I.assetId)] || {}).Value || 0,
+                rap:         (Kmap[String(I.assetId)] || {}).RAP   || I.recentAveragePrice || 0,
             }));
 
-            Log('Done — ' + Inventory.length + ' tradable items loaded', '#4db87a');
+            Log('Done — ' + Inventory.length + ' items loaded', '#4db87a');
             return Inventory;
         } catch (E) {
             Log('Inventory load failed: ' + E.message, '#e74c3c');
+            console.error('[PK+ Inventory]', E);
             return [];
         }
     }
 
-    // ── Owner fetcher — uses /inventory/v2/assets/{id}/owners ────────────────
-    // Response shape: { nextPageCursor: "50"|null, data: [{id, owner:{id,name}, serialNumber}] }
-    // credentials:'include' uses the logged-in user's session cookie automatically
+    // ── Owner fetcher ──────────────────────────────────────────────────────
     async function FetchOwners(ItemId, Log) {
         if (BT_OwnerCache[ItemId]) {
             Log('Using cached owners (' + BT_OwnerCache[ItemId].length + ')', '#4db87a');
-            console.log('[PK+ FetchOwners] cache hit for', ItemId, '—', BT_OwnerCache[ItemId].length, 'owners');
             return BT_OwnerCache[ItemId];
         }
         try {
             Log('Fetching owners for item ' + ItemId + '...');
-            console.log('[PK+ FetchOwners] starting fetch for item', ItemId);
             let Cursor = null;
             let All    = [];
             let Page   = 0;
+
             do {
-                // Omit cursor param entirely on first page
                 const CursorPart = (Cursor != null && Cursor !== '') ? '&cursor=' + encodeURIComponent(Cursor) : '';
-                const Url = '/apisite/inventory/v2/assets/' + ItemId + '/owners?limit=100&sortOrder=Asc' + CursorPart;
-                console.log('[PK+ FetchOwners] fetching page', Page + 1, ':', Url);
-                const R = await fetch(Url, { credentials: 'include' });
-                console.log('[PK+ FetchOwners] page', Page + 1, 'status:', R.status);
-                if (!R.ok) {
-                    const ErrText = await R.text().catch(() => '');
-                    console.log('[PK+ FetchOwners] error body:', ErrText);
-                    throw new Error('HTTP ' + R.status);
-                }
-                const J = await R.json();
-                console.log('[PK+ FetchOwners] page', Page + 1, 'raw response — data.length:', (J.data || []).length, 'nextPageCursor:', J.nextPageCursor);
-                const PageData = J.data || [];
-                // Filter out entries with no owner (unowned/null)
-                const WithOwner = PageData.filter(E => E.owner != null);
-                console.log('[PK+ FetchOwners] page', Page + 1, '— entries with owner:', WithOwner.length, '/', PageData.length);
+                const Url = 'https://www.pekora.zip/apisite/inventory/v2/assets/' + ItemId + '/owners?limit=100&sortOrder=Asc' + CursorPart;
+                console.log('[PK+ FetchOwners] page', Page + 1, Url);
+                const J = await GmGet(Url);
+                console.log('[PK+ FetchOwners] page', Page + 1, '— total entries:', (J.data || []).length, 'nextCursor:', J.nextPageCursor);
+
+                const WithOwner = (J.data || []).filter(E => E.owner != null);
+                console.log('[PK+ FetchOwners] entries with owner:', WithOwner.length);
                 All = All.concat(WithOwner);
+
                 const Next = J.nextPageCursor;
                 Cursor = (Next != null && Next !== '') ? Next : null;
                 Page++;
                 if (Cursor) Log('Page ' + Page + ': ' + All.length + ' owners so far...');
-            } while (Cursor && Page < 100); // 100 pages * 100 = 10,000 max
+            } while (Cursor && Page < 100);
 
-            console.log('[PK+ FetchOwners] done — total raw entries with owner:', All.length);
-            if (!All.length) { Log('No owners found.', '#f59e0b'); return []; }
+            console.log('[PK+ FetchOwners] total with owner:', All.length);
 
-            // Deduplicate by userId — collect all their userAssetIds
+            if (!All.length) {
+                Log('No owners found.', '#f59e0b');
+                return [];
+            }
+
             const ByUser = new Map();
             for (const E of All) {
                 const Uid = String(E.owner.id);
@@ -239,12 +220,11 @@
             }
 
             const Owners = [...ByUser.values()];
-            console.log('[PK+ FetchOwners] unique owners after dedup:', Owners.length);
             BT_OwnerCache[ItemId] = Owners;
             Log('Found ' + Owners.length + ' unique owners (' + All.length + ' total copies)', '#4db87a');
             return Owners;
         } catch (E) {
-            console.error('[PK+ FetchOwners] threw:', E);
+            console.error('[PK+ FetchOwners]', E);
             Log('Owner fetch failed: ' + E.message, '#e74c3c');
             return [];
         }
@@ -252,68 +232,53 @@
 
     // ── CSRF ───────────────────────────────────────────────────────────────
     async function GetCsrf() {
-        // Log all cookies so we can see which csrf cookie name is actually present
-        console.log('[PK+ CSRF] all cookies:', document.cookie);
-        const M = document.cookie.match(/rbxcsrf4=([^;]+)/);
-        if (M) { console.log('[PK+ CSRF] found rbxcsrf4 in cookie'); return decodeURIComponent(M[1]); }
-        console.log('[PK+ CSRF] rbxcsrf4 not found, probing trade endpoint to set cookie...');
+        console.log('[PK+ CSRF] probing for token...');
         try {
-            const ProbeResp = await fetch('/apisite/trades/v1/trades/send', { method: 'POST', credentials: 'include' });
-            console.log('[PK+ CSRF] probe response status:', ProbeResp.status);
-            // Some APIs return the token in a response header instead of cookie
-            const HeaderToken = ProbeResp.headers.get('x-csrf-token');
-            if (HeaderToken) { console.log('[PK+ CSRF] got token from response header'); return HeaderToken; }
-        } catch (E) { console.log('[PK+ CSRF] probe fetch threw:', E.message); }
-        console.log('[PK+ CSRF] cookies after probe:', document.cookie);
-        // Try all common csrf cookie names
-        const Names = ['rbxcsrf4', 'rbxcsrf3', 'rbxcsrf2', 'rbxcsrf', '_csrf', 'csrf_token', 'XSRF-TOKEN'];
-        for (const Name of Names) {
-            const Rx = new RegExp(Name + '=([^;]+)');
-            const Mc = document.cookie.match(Rx);
-            if (Mc) { console.log('[PK+ CSRF] found token in cookie:', Name); return decodeURIComponent(Mc[1]); }
+            const R = await GmPost('https://www.pekora.zip/apisite/trades/v1/trades/send', {}, {});
+            const Headers = R.headers || '';
+            const Match = Headers.match(/x-csrf-token:\s*([^\r\n]+)/i);
+            if (Match) {
+                console.log('[PK+ CSRF] got token from probe response header');
+                return Match[1].trim();
+            }
+        } catch (E) {
+            console.log('[PK+ CSRF] probe threw:', E.message);
         }
-        console.warn('[PK+ CSRF] no csrf token found anywhere — trade will likely 403');
+        console.warn('[PK+ CSRF] could not get token');
         return '';
     }
 
     // ── Trade sender ───────────────────────────────────────────────────────
     async function SendTrade(MyUAIds, TheirUserId, TheirUAIds) {
         const Csrf = await GetCsrf();
-        console.log('[PK+ SendTrade] CSRF token:', Csrf ? Csrf.slice(0,8) + '...' : 'EMPTY');
-        console.log('[PK+ SendTrade] MyUAIds:', MyUAIds);
-        console.log('[PK+ SendTrade] TheirUserId:', TheirUserId);
-        console.log('[PK+ SendTrade] TheirUAIds:', TheirUAIds);
+        console.log('[PK+ SendTrade] csrf:', Csrf ? Csrf.slice(0, 10) + '...' : 'EMPTY');
+        console.log('[PK+ SendTrade] MyUAIds:', MyUAIds, 'TheirUserId:', TheirUserId, 'TheirUAIds:', TheirUAIds);
 
-        // Build payload — userId on offer[1] must be the recipient's userId as a number
-        const Payload = { offers: [
-            { robux: null, userAssetIds: MyUAIds,    userId: null },
-            { robux: null, userAssetIds: TheirUAIds, userId: Number(TheirUserId) },
-        ]};
+        const Payload = {
+            offers: [
+                { robux: null, userAssetIds: MyUAIds,    userId: null },
+                { robux: null, userAssetIds: TheirUAIds, userId: Number(TheirUserId) },
+            ]
+        };
         console.log('[PK+ SendTrade] payload:', JSON.stringify(Payload));
 
-        const Resp = await fetch('/apisite/trades/v1/trades/send', {
-            method: 'POST', credentials: 'include',
-            headers: { 'Content-Type': 'application/json', 'x-csrf-token': Csrf },
-            body: JSON.stringify(Payload),
-        });
-        console.log('[PK+ SendTrade] response status:', Resp.status);
-        if (!Resp.ok) {
-            let Msg = 'HTTP ' + Resp.status;
+        const R = await GmPost('https://www.pekora.zip/apisite/trades/v1/trades/send', Payload, { 'x-csrf-token': Csrf });
+        console.log('[PK+ SendTrade] status:', R.status, 'body:', R.text.slice(0, 300));
+
+        if (R.status < 200 || R.status >= 300) {
+            let Msg = 'HTTP ' + R.status;
             try {
-                const J = await Resp.json();
-                console.log('[PK+ SendTrade] error body:', JSON.stringify(J));
-                Msg = J.errors?.[0]?.message || J.message || Msg;
-            } catch (PE) { console.log('[PK+ SendTrade] could not parse error body:', PE.message); }
+                const J = JSON.parse(R.text);
+                Msg = (J.errors && J.errors[0] && J.errors[0].message) || J.message || Msg;
+            } catch {}
             throw new Error(Msg);
         }
-        const OkBody = await Resp.json().catch(() => ({}));
-        console.log('[PK+ SendTrade] success body:', JSON.stringify(OkBody));
     }
 
     // ── CSV export ─────────────────────────────────────────────────────────
     function ExportCsv(Rows) {
         const Csv = 'Timestamp,Mode,Target,UserID,Status,Detail\n'
-                  + Rows.map(R => [R.ts, R.mode, `"${R.target}"`, R.uid, R.status, `"${R.detail}"`].join(',')).join('\n');
+                  + Rows.map(R => [R.ts, R.mode, '"' + R.target + '"', R.uid, R.status, '"' + R.detail + '"'].join(',')).join('\n');
         const Url = URL.createObjectURL(new Blob([Csv], { type: 'text/csv' }));
         const A   = document.createElement('a');
         A.href = Url; A.download = 'pekora-bulk-trades.csv'; A.click();
@@ -325,82 +290,81 @@
     // ══════════════════════════════════════════════════════════════════════════
     function BuildBulkTradePanel() {
         const Existing = document.getElementById('pk-bulktrade-panel');
-        if (Existing) { Existing.remove(); return; }
+        if (Existing) { Existing.remove(); document.getElementById('pk-bt-tgtdrop')?.remove(); return; }
 
-        // Inject scoped styles for the panel
         const StyleEl = document.createElement('style');
         StyleEl.id = 'pk-bt-styles';
         StyleEl.textContent = `
-            #pk-bulktrade-panel * { box-sizing: border-box; font-family: 'Source Sans Pro', sans-serif; }
-            #pk-bulktrade-panel ::-webkit-scrollbar { width: 4px; height: 4px; }
-            #pk-bulktrade-panel ::-webkit-scrollbar-track { background: transparent; }
-            #pk-bulktrade-panel ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; }
-            #pk-bulktrade-panel ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.22); }
-            .pk-bt-btn { transition: opacity .12s, filter .12s; }
-            .pk-bt-btn:hover:not(:disabled) { filter: brightness(1.12); }
-            .pk-bt-btn:active:not(:disabled) { filter: brightness(0.9); }
-            .pk-bt-input:focus { border-color: rgba(255,255,255,.28) !important; box-shadow: 0 0 0 2px rgba(255,255,255,.06); }
-            .pk-bt-chip { transition: background .1s, border-color .1s; }
-            .pk-bt-chip:hover { background: #2d333b !important; border-color: rgba(255,255,255,.2) !important; }
-            .pk-bt-row:hover { background: rgba(255,255,255,.05) !important; }
-            .pk-drop-row { transition: background .08s; }
-            .pk-drop-row:hover { background: rgba(255,255,255,.07) !important; }
-            .pk-tab-btn { transition: color .12s, border-color .12s; }
+            #pk-bulktrade-panel * { box-sizing:border-box; font-family:'Source Sans Pro',sans-serif; }
+            #pk-bulktrade-panel ::-webkit-scrollbar { width:4px; }
+            #pk-bulktrade-panel ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.15); border-radius:4px; }
+            .pk-bt-btn { transition:filter .12s; cursor:pointer; }
+            .pk-bt-btn:hover:not(:disabled) { filter:brightness(1.15); }
+            .pk-bt-btn:active:not(:disabled) { filter:brightness(0.9); }
+            .pk-bt-input:focus { border-color:rgba(255,255,255,.3) !important; outline:none; }
+            .pk-bt-row:hover { background:rgba(255,255,255,.05) !important; }
+            .pk-drop-row:hover { background:rgba(255,255,255,.08) !important; }
         `;
         document.head.appendChild(StyleEl);
 
+        // ── Portalled dropdown (must be outside overflow:auto) ────────────
+        const TgtDrop = El('div', {
+            position: 'fixed', zIndex: '2000000',
+            background: '#161b22', border: '1px solid rgba(255,255,255,.15)',
+            borderRadius: '8px', maxHeight: '260px', overflowY: 'auto', display: 'none',
+            boxShadow: '0 12px 32px rgba(0,0,0,.9)',
+        });
+        TgtDrop.id = 'pk-bt-tgtdrop';
+        document.body.appendChild(TgtDrop);
+
         const Overlay = El('div', {
-            position: 'fixed', inset: '0', background: 'rgba(0,0,0,.72)',
+            position: 'fixed', inset: '0', background: 'rgba(0,0,0,.7)',
             zIndex: '1000000', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backdropFilter: 'blur(2px)',
         });
         Overlay.id = 'pk-bulktrade-panel';
 
         const Panel = El('div', {
             background: '#0d1117', border: '1px solid rgba(255,255,255,.1)',
-            borderRadius: '12px', width: '720px', maxWidth: '96vw', maxHeight: '90vh',
+            borderRadius: '12px', width: '700px', maxWidth: '96vw', maxHeight: '90vh',
             display: 'flex', flexDirection: 'column',
-            boxShadow: '0 24px 64px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.04)', overflow: 'hidden',
+            boxShadow: '0 20px 60px rgba(0,0,0,.9)', overflow: 'hidden',
         });
 
         // ── Header ────────────────────────────────────────────────────────
-        const Hdr  = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#0d1117', flexShrink: '0' });
+        const Hdr = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.08)', flexShrink: '0' });
         const HdrL = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
-        const LogoWrap = El('div', { display: 'flex', alignItems: 'center', gap: '7px', padding: '4px 10px', background: 'rgba(138,81,73,.15)', borderRadius: '6px', border: '1px solid rgba(138,81,73,.3)' });
-        LogoWrap.appendChild(Span('Pekora+', { fontSize: '12px', fontWeight: '700', color: 'var(--primary-color,#8A5149)', letterSpacing: '.3px' }));
-        HdrL.appendChild(LogoWrap);
-        const Sep = El('div', { width: '1px', height: '18px', background: 'rgba(255,255,255,.1)' });
-        HdrL.appendChild(Sep);
-        HdrL.appendChild(Span('Bulk Trade', { fontSize: '17px', fontWeight: '700', color: '#e6edf3', letterSpacing: '-.3px' }));
-        const XBtn = El('button', { background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', color: '#8b949e', cursor: 'pointer', width: '30px', height: '30px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        const Logo = El('div', { padding: '3px 8px', background: 'rgba(138,81,73,.15)', borderRadius: '5px', border: '1px solid rgba(138,81,73,.3)' });
+        Logo.appendChild(Span('Pekora+', { fontSize: '11px', fontWeight: '700', color: 'var(--primary-color,#8A5149)' }));
+        HdrL.appendChild(Logo);
+        HdrL.appendChild(Span('Bulk Trade', { fontSize: '16px', fontWeight: '700', color: '#e6edf3' }));
+        const XBtn = El('button', { background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', color: '#8b949e', width: '28px', height: '28px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
         XBtn.className = 'pk-bt-btn';
-        XBtn.appendChild(Svg(I_X, '14'));
-        XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); document.getElementById('pk-bt-styles')?.remove(); document.getElementById('pk-bt-tgtdrop')?.remove(); });
+        XBtn.appendChild(Svg(I_X, '13'));
+        XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); TgtDrop.remove(); StyleEl.remove(); });
         Hdr.appendChild(HdrL); Hdr.appendChild(XBtn);
 
         // ── Tabs ──────────────────────────────────────────────────────────
-        const TabBar  = El('div', { display: 'flex', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#0d1117', flexShrink: '0', padding: '0 20px', gap: '4px' });
-        const TabDefs = [
+        const TabBar = El('div', { display: 'flex', borderBottom: '1px solid rgba(255,255,255,.08)', padding: '0 18px', gap: '2px', flexShrink: '0' });
+        const Pages  = [];
+        const TabBtns = [
             { label: 'Blast Trade', icon: I_BOLT },
-            { label: 'Cancel Trades', icon: I_CANCEL },
-        ];
-        const Pages   = [];
-        const TabBtns = TabDefs.map((D, I) => {
-            const B = El('button', { padding: '10px 16px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', border: 'none', borderBottom: I === 0 ? '2px solid #2ea043' : '2px solid transparent', background: 'none', display: 'flex', alignItems: 'center', gap: '7px', color: I === 0 ? '#e6edf3' : '#555', marginBottom: '-1px' });
-            B.className = 'pk-tab-btn';
-            B.appendChild(Svg(D.icon, '13')); B.appendChild(document.createTextNode(D.label));
+            { label: 'Cancel Trades', icon: I_X },
+        ].map((D, I) => {
+            const B = El('button', { padding: '9px 14px', fontSize: '12px', fontWeight: '600', border: 'none', borderBottom: I === 0 ? '2px solid #2ea043' : '2px solid transparent', background: 'none', display: 'flex', alignItems: 'center', gap: '6px', color: I === 0 ? '#e6edf3' : '#555', marginBottom: '-1px' });
+            B.className = 'pk-bt-btn';
+            B.appendChild(Svg(D.icon, '12')); B.appendChild(document.createTextNode(D.label));
             TabBar.appendChild(B); return B;
         });
 
-        const Content = El('div', { flex: '1', overflowY: 'auto', padding: '20px' });
+        const Content = El('div', { flex: '1', overflowY: 'auto', padding: '18px' });
 
-        const SecLbl = (T, Mt) => {
-            const D = El('div', { fontSize: '10px', fontWeight: '700', color: '#3d4451', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px', marginTop: Mt || '0', display: 'flex', alignItems: 'center', gap: '8px' });
+        function SecLbl(T, Mt) {
+            const D = El('div', { fontSize: '10px', fontWeight: '700', color: '#444', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px', marginTop: Mt || '0', display: 'flex', alignItems: 'center', gap: '8px' });
             D.textContent = T;
             const Line = El('div', { flex: '1', height: '1px', background: 'rgba(255,255,255,.05)' });
             D.appendChild(Line);
             return D;
-        };
+        }
 
         // ══════════════════════════════════════════════════════════════════
         //  PAGE 0 — BLAST
@@ -408,21 +372,19 @@
         const BlastPage = El('div', {});
         BlastPage.appendChild(SecLbl('1 · Your Offer Items'));
 
-        const InvRow     = El('div', { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' });
-        const LoadInvBtn = El('button', { padding: '7px 16px', fontSize: '12px', fontWeight: '700', color: '#e6edf3', background: 'rgba(31,111,235,.2)', border: '1px solid rgba(56,139,253,.4)', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' });
+        const InvRow = El('div', { display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center', flexWrap: 'wrap' });
+        const LoadInvBtn = El('button', { padding: '6px 14px', fontSize: '12px', fontWeight: '700', color: '#e6edf3', background: 'rgba(31,111,235,.2)', border: '1px solid rgba(56,139,253,.4)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' });
         LoadInvBtn.className = 'pk-bt-btn';
-        LoadInvBtn.appendChild(Svg(I_PACK, '12'));
         LoadInvBtn.appendChild(document.createTextNode('Load Inventory'));
         const InvStatus = Span('', { fontSize: '12px', color: '#555' });
         InvRow.appendChild(LoadInvBtn); InvRow.appendChild(InvStatus);
         BlastPage.appendChild(InvRow);
 
-        // Inline log for inventory loading progress
-        const InvLog = El('div', { background: '#060a0f', borderRadius: '5px', padding: '5px 10px', fontSize: '10px', fontFamily: 'monospace', color: '#555', minHeight: '18px', marginBottom: '8px', display: 'none', border: '1px solid rgba(255,255,255,.05)' });
+        const InvLog = El('div', { background: '#060a0f', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', fontFamily: 'monospace', color: '#555', marginBottom: '6px', display: 'none' });
         BlastPage.appendChild(InvLog);
 
-        const OfferGrid = El('div', { display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '52px', background: 'rgba(255,255,255,.02)', borderRadius: '7px', padding: '10px', border: '1px solid rgba(255,255,255,.06)' });
-        const OfferPH   = Span('Load your inventory then select up to 4 items to offer', { fontSize: '11px', color: '#3d4451' });
+        const OfferGrid = El('div', { display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '44px', background: 'rgba(255,255,255,.02)', borderRadius: '6px', padding: '8px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '4px' });
+        const OfferPH = Span('Load inventory then select up to 4 items', { fontSize: '11px', color: '#444' });
         OfferGrid.appendChild(OfferPH);
         BlastPage.appendChild(OfferGrid);
 
@@ -435,129 +397,113 @@
             for (const UAId of SelOffer) {
                 const Item = InvItems.find(I => String(I.userAssetId) === String(UAId));
                 if (!Item) continue;
-                const Chip = El('div', { display: 'flex', alignItems: 'center', gap: '6px', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', color: '#e6edf3', cursor: 'pointer', userSelect: 'none' });
-                Chip.className = 'pk-bt-chip';
+                const Chip = El('div', { display: 'flex', alignItems: 'center', gap: '5px', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', padding: '3px 8px', fontSize: '11px', color: '#e6edf3', cursor: 'pointer' });
                 Chip.title = 'Click to remove';
-                const NSpan = El('span', {}); NSpan.textContent = Item.name; NSpan.style.cssText = 'max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                const NSpan = El('span', {}); NSpan.textContent = Item.name; NSpan.style.cssText = 'max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 Chip.appendChild(NSpan);
                 Chip.appendChild(Span(' · ' + (Item.value > 0 ? Fmt(Item.value) : 'RAP ' + Fmt(Item.rap)), { color: '#3fb950', fontWeight: '700', fontSize: '10px' }));
-                const XI = Svg(I_X, '9'); XI.style.cssText = 'margin-left:2px;color:#555;';
+                const XI = Svg(I_X, '9'); XI.style.cssText = 'margin-left:2px;color:#555;flex-shrink:0;';
                 Chip.appendChild(XI);
                 Chip.addEventListener('click', () => { SelOffer.delete(String(UAId)); RefreshOfferGrid(); CalcRatio(); });
                 OfferGrid.appendChild(Chip);
             }
         }
 
-        // ── Inventory picker ──────────────────────────────────────────────
+        // ── Inventory picker modal ────────────────────────────────────────
         function OpenPicker() {
-            const Picker = El('div', { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.8)', zIndex: '1000001', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)' });
-            const Box    = El('div', { background: '#0d1117', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', width: '520px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,.95)' });
-            const PH2    = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#0d1117' });
-            PH2.appendChild(Span('Select Offer Items', { fontSize: '15px', fontWeight: '700', color: '#e6edf3' }));
-            PH2.appendChild(Span('max 4', { fontSize: '11px', color: '#555', marginLeft: '8px' }));
-            const PC = El('button', { background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', color: '#8b949e', cursor: 'pointer', width: '28px', height: '28px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' });
+            const Picker = El('div', { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.8)', zIndex: '1000001', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+            const Box = El('div', { background: '#0d1117', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', width: '500px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.95)' });
+
+            const PH = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,.07)' });
+            PH.appendChild(Span('Select Offer Items (max 4)', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' }));
+            const PC = El('button', { background: 'none', border: 'none', color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px' });
             PC.className = 'pk-bt-btn';
             PC.appendChild(Svg(I_X, '13')); PC.addEventListener('click', () => Picker.remove());
-            PH2.appendChild(PC); Box.appendChild(PH2);
+            PH.appendChild(PC); Box.appendChild(PH);
 
-            // Search bar inside picker
-            const PSWrap = El('div', { position: 'relative', padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#060a0f' });
-            const PSIcon = El('div', { position: 'absolute', left: '24px', top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none', display: 'flex' });
-            PSIcon.appendChild(Svg(I_SEARCH, '13'));
-            const PS = El('input', { padding: '7px 10px 7px 32px', background: '#0d1117', color: '#e6edf3', border: '1px solid rgba(255,255,255,.08)', borderRadius: '6px', fontSize: '12px', outline: 'none', width: '100%' });
-            PS.className = 'pk-bt-input';
-            PS.placeholder = 'Search your items...';
-            PSWrap.appendChild(PSIcon); PSWrap.appendChild(PS); Box.appendChild(PSWrap);
+            const SWrap = El('div', { position: 'relative', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,.07)', background: '#060a0f' });
+            const SIcon = El('div', { position: 'absolute', left: '22px', top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none', display: 'flex' });
+            SIcon.appendChild(Svg(I_SEARCH, '12'));
+            const SI = El('input', { width: '100%', padding: '6px 8px 6px 28px', background: '#0d1117', color: '#e6edf3', border: '1px solid rgba(255,255,255,.08)', borderRadius: '5px', fontSize: '12px' });
+            SI.className = 'pk-bt-input'; SI.placeholder = 'Search items...';
+            SWrap.appendChild(SIcon); SWrap.appendChild(SI); Box.appendChild(SWrap);
 
-            const PL = El('div', { flex: '1', overflowY: 'auto', padding: '8px' }); Box.appendChild(PL);
+            const PL = El('div', { flex: '1', overflowY: 'auto', padding: '6px' }); Box.appendChild(PL);
 
-            const PF = El('div', { padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,.07)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#060a0f' });
-            const OkB = El('button', { padding: '7px 20px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#1a7f37', border: '1px solid #2ea043', borderRadius: '6px', cursor: 'pointer' });
-            OkB.className = 'pk-bt-btn';
-            OkB.textContent = 'Confirm'; OkB.addEventListener('click', () => { RefreshOfferGrid(); CalcRatio(); Picker.remove(); });
-            const CaB = El('button', { padding: '7px 14px', fontSize: '13px', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', cursor: 'pointer' });
-            CaB.className = 'pk-bt-btn';
-            CaB.textContent = 'Cancel'; CaB.addEventListener('click', () => Picker.remove());
+            const PF = El('div', { padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,.07)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#060a0f' });
+            const OkB = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1a7f37', border: '1px solid #2ea043', borderRadius: '5px' });
+            OkB.className = 'pk-bt-btn'; OkB.textContent = 'Confirm';
+            OkB.addEventListener('click', () => { RefreshOfferGrid(); CalcRatio(); Picker.remove(); });
+            const CaB = El('button', { padding: '6px 12px', fontSize: '12px', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px' });
+            CaB.className = 'pk-bt-btn'; CaB.textContent = 'Cancel';
+            CaB.addEventListener('click', () => Picker.remove());
             PF.appendChild(CaB); PF.appendChild(OkB); Box.appendChild(PF);
 
             function RenderPicker(F) {
                 PL.innerHTML = '';
                 const Fil = InvItems.filter(I => !F || I.name.toLowerCase().includes(F.toLowerCase()));
-                if (!Fil.length) { PL.appendChild(Span('No items found.', { fontSize: '12px', color: '#555', padding: '12px', display: 'block' })); return; }
+                if (!Fil.length) { PL.appendChild(Span('No items.', { fontSize: '12px', color: '#555', padding: '10px', display: 'block' })); return; }
                 Fil.forEach(I => {
                     const Sel = SelOffer.has(String(I.userAssetId));
-                    const Row = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', borderRadius: '6px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(46,160,67,.12)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(46,160,67,.3)' : 'transparent'), marginBottom: '2px' });
+                    const Row = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(46,160,67,.12)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(46,160,67,.3)' : 'transparent'), marginBottom: '2px' });
                     Row.className = 'pk-bt-row';
-                    const Lft = El('div', { display: 'flex', flexDirection: 'column', gap: '2px' });
+                    const Lft = El('div', { display: 'flex', flexDirection: 'column', gap: '1px' });
                     Lft.appendChild(Span(I.name, { fontSize: '12px', color: '#e6edf3', fontWeight: '500' }));
                     Lft.appendChild(Span(I.value > 0 ? 'Val: ' + Fmt(I.value) + '  RAP: ' + Fmt(I.rap) : 'RAP: ' + Fmt(I.rap), { fontSize: '10px', color: '#555' }));
-                    const CkW = El('div', { width: '18px', height: '18px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: Sel ? 'rgba(46,160,67,.25)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(46,160,67,.5)' : 'rgba(255,255,255,.1)'), flexShrink: '0' });
-                    if (Sel) { const Ck = Svg(I_CHECK, '11'); Ck.style.color = '#3fb950'; CkW.appendChild(Ck); }
-                    Row.appendChild(Lft); Row.appendChild(CkW);
+                    const Ck = El('div', { width: '16px', height: '16px', borderRadius: '3px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0', background: Sel ? 'rgba(46,160,67,.3)' : 'transparent', border: '1px solid ' + (Sel ? '#3fb950' : 'rgba(255,255,255,.15)') });
+                    if (Sel) { const C = Svg(I_CHECK, '10'); C.style.color = '#3fb950'; Ck.appendChild(C); }
+                    Row.appendChild(Lft); Row.appendChild(Ck);
                     Row.addEventListener('click', () => {
                         const K = String(I.userAssetId);
                         if (SelOffer.has(K)) {
                             SelOffer.delete(K);
                             Row.style.background = 'transparent'; Row.style.border = '1px solid transparent';
-                            CkW.innerHTML = ''; CkW.style.background = 'transparent'; CkW.style.border = '1px solid rgba(255,255,255,.1)';
+                            Ck.innerHTML = ''; Ck.style.background = 'transparent'; Ck.style.border = '1px solid rgba(255,255,255,.15)';
                         } else {
                             if (SelOffer.size >= 4) { Toast('Max 4 offer items', 'warn'); return; }
                             SelOffer.add(K);
                             Row.style.background = 'rgba(46,160,67,.12)'; Row.style.border = '1px solid rgba(46,160,67,.3)';
-                            CkW.innerHTML = ''; CkW.style.background = 'rgba(46,160,67,.25)'; CkW.style.border = '1px solid rgba(46,160,67,.5)';
-                            const Ck = Svg(I_CHECK, '11'); Ck.style.color = '#3fb950'; CkW.appendChild(Ck);
+                            Ck.innerHTML = ''; Ck.style.background = 'rgba(46,160,67,.3)'; Ck.style.border = '1px solid #3fb950';
+                            const C = Svg(I_CHECK, '10'); C.style.color = '#3fb950'; Ck.appendChild(C);
                         }
                     });
                     PL.appendChild(Row);
                 });
             }
-            PS.addEventListener('input', () => RenderPicker(PS.value));
+            SI.addEventListener('input', () => RenderPicker(SI.value));
             RenderPicker('');
             Picker.appendChild(Box); document.body.appendChild(Picker);
         }
 
         LoadInvBtn.addEventListener('click', async () => {
-            LoadInvBtn.disabled = true; LoadInvBtn.lastChild.textContent = ' Loading...';
+            LoadInvBtn.disabled = true; LoadInvBtn.textContent = 'Loading...';
             InvStatus.textContent = ''; InvLog.style.display = 'block'; InvLog.textContent = '';
-            const TmpLog = (T, C) => {
-                InvLog.textContent = T;
-                InvLog.style.color = C || '#555';
-            };
-            InvItems = await LoadInventory(TmpLog);
+            InvItems = await LoadInventory(T => { InvLog.textContent = T; });
             InvLog.style.display = 'none';
             InvStatus.textContent = InvItems.length + ' items';
             InvStatus.style.color = InvItems.length > 0 ? '#3fb950' : '#e74c3c';
-            LoadInvBtn.lastChild.textContent = ' Reload';
-            LoadInvBtn.disabled = false;
+            LoadInvBtn.textContent = 'Reload'; LoadInvBtn.disabled = false;
             if (InvItems.length) OpenPicker();
         });
 
-        // ── 2. Target item — live search with dropdown ───────────────────────
-        BlastPage.appendChild(SecLbl('2 · Target Item', '16px'));
+        // ── 2. Target item ─────────────────────────────────────────────────
+        BlastPage.appendChild(SecLbl('2 · Target Item', '14px'));
 
-        // Wrapper for input — dropdown is portalled to body to escape overflow:auto clipping
-        const TgtWrap = El('div', { position: 'relative', marginBottom: '8px' });
+        const TgtWrap = El('div', { position: 'relative', marginBottom: '6px' });
         const TgtInpWrap = El('div', { position: 'relative', display: 'flex', alignItems: 'center' });
-        const TgtIcon = El('div', { position: 'absolute', left: '11px', color: '#555', display: 'flex', pointerEvents: 'none', zIndex: '1' });
-        TgtIcon.appendChild(Svg(I_SEARCH, '13'));
-        const TgtInp  = El('input', { width: '100%', boxSizing: 'border-box', padding: '8px 12px 8px 34px', background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '7px', fontSize: '13px', outline: 'none' });
-        TgtInp.className = 'pk-bt-input';
-        TgtInp.placeholder = 'Type item name or paste ID...';
-        TgtInpWrap.appendChild(TgtIcon); TgtInpWrap.appendChild(TgtInp);
+        const TgtIconEl = El('div', { position: 'absolute', left: '10px', color: '#555', display: 'flex', pointerEvents: 'none', zIndex: '1' });
+        TgtIconEl.appendChild(Svg(I_SEARCH, '13'));
+        const TgtInp = El('input', { width: '100%', boxSizing: 'border-box', padding: '8px 10px 8px 32px', background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', fontSize: '13px' });
+        TgtInp.className = 'pk-bt-input'; TgtInp.placeholder = 'Type item name or paste ID...';
+        TgtInpWrap.appendChild(TgtIconEl); TgtInpWrap.appendChild(TgtInp);
         TgtWrap.appendChild(TgtInpWrap);
         BlastPage.appendChild(TgtWrap);
 
-        // Dropdown portalled to body so overflow:auto on Content div does not clip it
-        const TgtDrop = El('div', {
-            position: 'fixed', zIndex: '2000000',
-            background: '#161b22', border: '1px solid rgba(255,255,255,.15)',
-            borderRadius: '8px', maxHeight: '260px', overflowY: 'auto', display: 'none',
-            boxShadow: '0 12px 32px rgba(0,0,0,.85)',
-        });
-        TgtDrop.id = 'pk-bt-tgtdrop';
-        document.body.appendChild(TgtDrop);
+        const TgtInfo = El('div', { minHeight: '36px', marginBottom: '10px' });
+        BlastPage.appendChild(TgtInfo);
 
-        // Reposition the dropdown directly under the input using its bounding rect
+        let TgtId = null, TgtName = '', SearchTimer = null, DropKmap = null;
+
         function PositionDrop() {
             const R = TgtInp.getBoundingClientRect();
             TgtDrop.style.left  = R.left + 'px';
@@ -565,35 +511,24 @@
             TgtDrop.style.width = R.width + 'px';
         }
 
-        const TgtInfo = El('div', { minHeight: '40px', marginBottom: '12px' });
-        BlastPage.appendChild(TgtInfo);
-
-        let TgtId      = null;
-        let TgtName    = '';
-        let SearchTimer2 = null;
-
-        // Get kmap once and cache it for the dropdown
-        let DropKmap = null;
-
         function SelectItem(ItemId, Kmap) {
-            const K  = Kmap[ItemId] || {};
-            TgtId    = ItemId;
-            TgtName  = K.Name || K.name || ('Item ' + ItemId);
+            const K = Kmap[ItemId] || {};
+            TgtId   = ItemId;
+            TgtName = K.Name || K.name || ('Item ' + ItemId);
             TgtInp.value = TgtName;
             TgtDrop.style.display = 'none';
             TgtDrop.innerHTML = '';
-
             TgtInfo.innerHTML = '';
-            const KV = K.Value  || K.value  || 0;
-            const KR = K.RAP    || K.rap    || 0;
+
+            const KV = K.Value || K.value || 0;
+            const KR = K.RAP   || K.rap   || 0;
             const KD = K.Demand || K.demand || '';
-            const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,.03)', borderRadius: '7px', padding: '10px 12px', border: '1px solid rgba(255,255,255,.07)', flexWrap: 'wrap' });
-            const NameSpan = Span(TgtName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' });
-            Row.appendChild(NameSpan);
-            if (KV > 0) Row.appendChild(Span('Val: ' + Fmt(KV), { fontSize: '11px', color: '#3fb950', fontWeight: '700', padding: '2px 7px', background: 'rgba(63,185,80,.1)', borderRadius: '4px', border: '1px solid rgba(63,185,80,.2)' }));
-            if (KR > 0) Row.appendChild(Span('RAP: ' + Fmt(KR), { fontSize: '11px', color: '#58a6ff', fontWeight: '600', padding: '2px 7px', background: 'rgba(88,166,255,.08)', borderRadius: '4px', border: '1px solid rgba(88,166,255,.15)' }));
-            if (KD && KD !== 'None') Row.appendChild(Span(KD, { fontSize: '11px', color: '#e3b341', padding: '2px 7px', background: 'rgba(227,179,65,.08)', borderRadius: '4px', border: '1px solid rgba(227,179,65,.15)' }));
-            Row.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#3d4451' }));
+            const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,.03)', borderRadius: '6px', padding: '8px 10px', border: '1px solid rgba(255,255,255,.07)', flexWrap: 'wrap' });
+            Row.appendChild(Span(TgtName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
+            if (KV > 0) Row.appendChild(Span('Val: ' + Fmt(KV), { fontSize: '11px', color: '#3fb950', fontWeight: '700', padding: '2px 6px', background: 'rgba(63,185,80,.1)', borderRadius: '3px' }));
+            if (KR > 0) Row.appendChild(Span('RAP: ' + Fmt(KR), { fontSize: '11px', color: '#58a6ff', fontWeight: '600', padding: '2px 6px', background: 'rgba(88,166,255,.08)', borderRadius: '3px' }));
+            if (KD && KD !== 'None') Row.appendChild(Span(KD, { fontSize: '11px', color: '#e3b341', padding: '2px 6px', background: 'rgba(227,179,65,.08)', borderRadius: '3px' }));
+            Row.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#444' }));
             TgtInfo.appendChild(Row);
             CalcRatio();
         }
@@ -602,32 +537,21 @@
             TgtDrop.innerHTML = '';
             if (!Matches.length) { TgtDrop.style.display = 'none'; return; }
             Matches.forEach(([Id, Item]) => {
-                const K  = Item;
-                const KV = K.Value || K.value || 0;
-                const KR = K.RAP   || K.rap   || 0;
-                const Row = El('div', {
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '8px 14px', cursor: 'pointer', fontSize: '12px',
-                    borderBottom: '1px solid rgba(255,255,255,.04)',
-                });
+                const KV = Item.Value || Item.value || 0;
+                const KR = Item.RAP   || Item.rap   || 0;
+                const Row = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,.04)' });
                 Row.className = 'pk-drop-row';
-
-                const Left = El('div', { display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden', flex: '1' });
-                const NameSpan = El('span', {}); NameSpan.style.cssText = 'color:#e6edf3;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;';
-                NameSpan.textContent = K.Name || K.name || ('Item ' + Id);
-                const SubSpan = El('span', {}); SubSpan.style.cssText = 'font-size:10px;color:#3d4451;';
-                SubSpan.textContent = 'ID: ' + Id + (K.Acronym || K.acronym ? '  · ' + (K.Acronym || K.acronym) : '');
-                Left.appendChild(NameSpan); Left.appendChild(SubSpan);
-
-                const Right = El('div', { display: 'flex', gap: '6px', alignItems: 'center', flexShrink: '0', marginLeft: '10px' });
-                if (KV > 0) { const V = El('span', {}); V.style.cssText = 'font-size:10px;color:#3fb950;font-weight:700;padding:1px 5px;background:rgba(63,185,80,.1);border-radius:3px;'; V.textContent = Fmt(KV); Right.appendChild(V); }
-                if (KR > 0) { const R2 = El('span', {}); R2.style.cssText = 'font-size:10px;color:#58a6ff;padding:1px 5px;background:rgba(88,166,255,.08);border-radius:3px;'; R2.textContent = Fmt(KR); Right.appendChild(R2); }
-
+                const Left = El('div', { display: 'flex', flexDirection: 'column', gap: '1px', overflow: 'hidden', flex: '1' });
+                const NSpan = El('span', {}); NSpan.style.cssText = 'color:#e6edf3;font-weight:500;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                NSpan.textContent = Item.Name || Item.name || ('Item ' + Id);
+                const Sub = El('span', {}); Sub.style.cssText = 'font-size:10px;color:#444;';
+                Sub.textContent = 'ID: ' + Id + ((Item.Acronym || Item.acronym) ? '  · ' + (Item.Acronym || Item.acronym) : '');
+                Left.appendChild(NSpan); Left.appendChild(Sub);
+                const Right = El('div', { display: 'flex', gap: '5px', alignItems: 'center', flexShrink: '0', marginLeft: '8px' });
+                if (KV > 0) { const V = El('span', {}); V.style.cssText = 'font-size:10px;color:#3fb950;font-weight:700;padding:1px 4px;background:rgba(63,185,80,.1);border-radius:3px;'; V.textContent = Fmt(KV); Right.appendChild(V); }
+                if (KR > 0) { const RR = El('span', {}); RR.style.cssText = 'font-size:10px;color:#58a6ff;padding:1px 4px;background:rgba(88,166,255,.08);border-radius:3px;'; RR.textContent = Fmt(KR); Right.appendChild(RR); }
                 Row.appendChild(Left); Row.appendChild(Right);
-                Row.addEventListener('mousedown', (Ev) => {
-                    Ev.preventDefault(); // prevent input blur before click fires
-                    SelectItem(Id, Kmap);
-                });
+                Row.addEventListener('mousedown', Ev => { Ev.preventDefault(); SelectItem(Id, Kmap); });
                 TgtDrop.appendChild(Row);
             });
             PositionDrop();
@@ -635,96 +559,68 @@
         }
 
         async function UpdateDropdown(Q) {
-            console.log('[PK+ UpdateDropdown] called with:', JSON.stringify(Q));
+            console.log('[PK+ search] query:', Q);
             if (!Q || Q.length < 2) { TgtDrop.style.display = 'none'; return; }
-
-            // Load kmap if not yet loaded
             if (!DropKmap) {
-                console.log('[PK+ UpdateDropdown] loading kmap...');
-                const SearchLog = (T, C) => { console.log('[PK+ search]', T); };
-                DropKmap = await EnsureKmap(SearchLog);
-                console.log('[PK+ UpdateDropdown] kmap loaded, keys:', DropKmap ? Object.keys(DropKmap).length : 0);
+                console.log('[PK+ search] loading kmap...');
+                DropKmap = await EnsureKmap(null);
+                console.log('[PK+ search] kmap keys:', DropKmap ? Object.keys(DropKmap).length : 0);
             }
-            if (!DropKmap || !Object.keys(DropKmap).length) {
-                console.warn('[PK+ UpdateDropdown] kmap empty — cannot search');
-                return;
-            }
+            if (!DropKmap || !Object.keys(DropKmap).length) { console.warn('[PK+ search] kmap empty'); return; }
 
             const QL = Q.toLowerCase();
             const Matches = [];
-
-            // Direct ID match
-            if (/^\d+$/.test(Q) && DropKmap[Q]) {
-                Matches.push([Q, DropKmap[Q], 99]);
-            }
-
-            // Score and collect all matches — no hard cap on scan, show up to 30 results
+            if (/^\d+$/.test(Q) && DropKmap[Q]) Matches.push([Q, DropKmap[Q], 99]);
             for (const [Id, Item] of Object.entries(DropKmap)) {
-                if (/^\d+$/.test(Q) && Id === Q) continue; // already added above
+                if (/^\d+$/.test(Q) && Id === Q) continue;
                 const Name    = (Item.Name    || Item.name    || '').toLowerCase();
                 const Acronym = (Item.Acronym || Item.acronym || '').toLowerCase();
                 let Score = 0;
-                if (Acronym && Acronym === QL)       Score = 4;
-                else if (Name === QL)                Score = 3;
-                else if (Name.startsWith(QL))        Score = 2;
-                else if (Name.includes(QL))          Score = 1;
+                if (Acronym && Acronym === QL) Score = 4;
+                else if (Name === QL)          Score = 3;
+                else if (Name.startsWith(QL))  Score = 2;
+                else if (Name.includes(QL))    Score = 1;
                 if (Score > 0) Matches.push([Id, Item, Score]);
             }
-
-            console.log('[PK+ UpdateDropdown] raw matches for', JSON.stringify(Q), ':', Matches.length);
-            // Sort by score descending, show up to 30 so the user can scroll and pick
+            console.log('[PK+ search] matches:', Matches.length);
             Matches.sort((A, B) => B[2] - A[2]);
-            const Top = Matches.slice(0, 30);
-            console.log('[PK+ UpdateDropdown] showing top', Top.length, 'results');
-
-            RenderDropdown(Top.map(M => [M[0], M[1]]), DropKmap);
+            RenderDropdown(Matches.slice(0, 30).map(M => [M[0], M[1]]), DropKmap);
         }
 
         TgtInp.addEventListener('input', () => {
-            const Q = TgtInp.value.trim();
-            // Clear confirmed selection if user is typing again
             TgtId = null; TgtInfo.innerHTML = '';
-            clearTimeout(SearchTimer2);
-            SearchTimer2 = setTimeout(() => UpdateDropdown(Q), 150);
+            clearTimeout(SearchTimer);
+            SearchTimer = setTimeout(() => UpdateDropdown(TgtInp.value.trim()), 150);
         });
-
         TgtInp.addEventListener('keydown', E => {
-            if (E.key === 'Escape') { TgtDrop.style.display = 'none'; }
+            if (E.key === 'Escape') TgtDrop.style.display = 'none';
             if (E.key === 'Enter' && TgtDrop.style.display !== 'none') {
                 const First = TgtDrop.firstElementChild;
                 if (First) First.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
             }
         });
-
-        // Close dropdown when clicking outside — check against both the input wrap and the portalled dropdown
-        document.addEventListener('mousedown', (E) => {
-            if (!TgtWrap.contains(E.target) && !TgtDrop.contains(E.target)) {
-                TgtDrop.style.display = 'none';
-            }
-        }, { capture: true });
-
         TgtInp.addEventListener('focus', () => {
             if (TgtInp.value.trim().length >= 2 && !TgtId) UpdateDropdown(TgtInp.value.trim());
         });
+        document.addEventListener('mousedown', E => {
+            if (!TgtWrap.contains(E.target) && !TgtDrop.contains(E.target)) TgtDrop.style.display = 'none';
+        }, { capture: true });
 
         // ── Ratio bar ─────────────────────────────────────────────────────
-        const RBar = El('div', { display: 'flex', gap: '0', background: 'rgba(255,255,255,.03)', borderRadius: '7px', marginBottom: '14px', fontSize: '12px', color: '#8b949e', overflow: 'hidden', border: '1px solid rgba(255,255,255,.06)' });
-
-        const RCell = (Label, ValSpan) => {
-            const D = El('div', { display: 'flex', flexDirection: 'column', alignItems: 'center', flex: '1', padding: '8px 12px', borderRight: '1px solid rgba(255,255,255,.05)' });
-            D.appendChild(Span(Label, { fontSize: '9px', color: '#3d4451', textTransform: 'uppercase', letterSpacing: '.7px', fontWeight: '700' }));
-            D.appendChild(ValSpan);
+        const RBar = El('div', { display: 'flex', background: 'rgba(255,255,255,.03)', borderRadius: '6px', marginBottom: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,.06)' });
+        function RCell(Label, ValEl) {
+            const D = El('div', { display: 'flex', flexDirection: 'column', alignItems: 'center', flex: '1', padding: '7px 10px', borderRight: '1px solid rgba(255,255,255,.05)' });
+            D.appendChild(Span(Label, { fontSize: '9px', color: '#444', textTransform: 'uppercase', letterSpacing: '.7px', fontWeight: '700' }));
+            D.appendChild(ValEl);
             return D;
-        };
-
-        const RO  = Span('—', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' });
-        const RR  = Span('—', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' });
-        const RV  = Span('—', { fontSize: '14px', fontWeight: '700', color: '#555' });
+        }
+        const RO = Span('—', { fontSize: '13px', fontWeight: '700', color: '#e6edf3' });
+        const RR = Span('—', { fontSize: '13px', fontWeight: '700', color: '#e6edf3' });
+        const RV = Span('—', { fontSize: '13px', fontWeight: '700', color: '#555' });
         RBar.appendChild(RCell('Offering', RO));
         RBar.appendChild(RCell('Requesting', RR));
-        const RatioCell = RCell('Ratio', RV);
-        RatioCell.style.borderRight = 'none';
-        RBar.appendChild(RatioCell);
+        const RC3 = RCell('Ratio', RV); RC3.style.borderRight = 'none';
+        RBar.appendChild(RC3);
         BlastPage.appendChild(RBar);
 
         function CalcRatio() {
@@ -734,88 +630,85 @@
                 const I = InvItems.find(X => String(X.userAssetId) === String(UAId));
                 if (I) OTotal += I.value > 0 ? I.value : I.rap;
             }
-            const TK    = TgtId ? (Kmap[TgtId] || {}) : {};
-            const RVal  = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
+            const TK   = TgtId ? (Kmap[TgtId] || {}) : {};
+            const RVal = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
             const Ratio = (RVal > 0 && OTotal > 0) ? (OTotal / RVal).toFixed(2) : '—';
-            const RC    = Ratio !== '—' ? (parseFloat(Ratio) >= 1 ? '#3fb950' : parseFloat(Ratio) >= 0.7 ? '#e3b341' : '#f85149') : '#555';
+            const Col   = Ratio !== '—' ? (parseFloat(Ratio) >= 1 ? '#3fb950' : parseFloat(Ratio) >= 0.7 ? '#e3b341' : '#f85149') : '#555';
             RO.textContent = OTotal > 0 ? Fmt(OTotal) : '—';
-            RR.textContent = RVal  > 0 ? Fmt(RVal)  : '—';
+            RR.textContent = RVal  > 0 ? Fmt(RVal)   : '—';
             RV.textContent = Ratio !== '—' ? Ratio + 'x' : '—';
-            RV.style.color = RC;
+            RV.style.color = Col;
         }
 
         // ── 3. Options ────────────────────────────────────────────────────
         BlastPage.appendChild(SecLbl('3 · Options', '2px'));
-        const OG   = El('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 28px', marginBottom: '14px' });
+        const OG   = El('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px', marginBottom: '12px' });
         const Opts = { delaySec: 5, maxUsers: 50, minRatio: 0, skipDupUid: true, skipPending: false, multiItems: false };
 
         function NumRow(Lbl, Gv, Sv, Min, Max, Step) {
-            const Wr = El('div', { display: 'flex', flexDirection: 'column', gap: '5px' });
+            const Wr = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
             Wr.appendChild(Span(Lbl, { fontSize: '11px', color: '#555', fontWeight: '600' }));
-            const Cr = El('div', { display: 'flex', alignItems: 'center', gap: '6px' });
+            const Cr = El('div', { display: 'flex', alignItems: 'center', gap: '5px' });
             const MkB = T => {
-                const B = El('button', { width: '26px', height: '26px', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', color: '#e6edf3', cursor: 'pointer', fontSize: '15px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' });
-                B.className = 'pk-bt-btn';
-                B.textContent = T; return B;
+                const B = El('button', { width: '24px', height: '24px', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '4px', color: '#e6edf3', fontSize: '14px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: '0' });
+                B.className = 'pk-bt-btn'; B.textContent = T; return B;
             };
             const Mn = MkB('−'), Pl = MkB('+');
-            const Dp = El('span', { minWidth: '40px', textAlign: 'center', fontSize: '14px', fontWeight: '700', color: '#e6edf3', background: '#0d1117', border: '1px solid rgba(255,255,255,.07)', borderRadius: '5px', padding: '3px 6px' }); Dp.textContent = Gv();
+            const Dp = El('span', { minWidth: '36px', textAlign: 'center', fontSize: '13px', fontWeight: '700', color: '#e6edf3', background: '#0d1117', border: '1px solid rgba(255,255,255,.07)', borderRadius: '4px', padding: '2px 5px' });
+            Dp.textContent = Gv();
             Mn.addEventListener('click', () => { const V = Math.max(Min, Gv() - Step); Sv(V); Dp.textContent = V; });
             Pl.addEventListener('click',  () => { const V = Math.min(Max, Gv() + Step); Sv(V); Dp.textContent = V; });
             Cr.appendChild(Mn); Cr.appendChild(Dp); Cr.appendChild(Pl); Wr.appendChild(Cr); return Wr;
         }
 
         function ChkRow(Lbl, Gv, Sv) {
-            const Wr  = El('div', { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' });
-            const Box = El('div', { width: '17px', height: '17px', borderRadius: '4px', flexShrink: '0', background: Gv() ? 'rgba(46,160,67,.25)' : 'rgba(255,255,255,.04)', border: '1px solid ' + (Gv() ? 'rgba(46,160,67,.5)' : 'rgba(255,255,255,.12)'), display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .12s, border-color .12s' });
-            if (Gv()) { const C = Svg(I_CHECK, '11'); C.style.color = '#3fb950'; Box.appendChild(C); }
+            const Wr  = El('div', { display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', userSelect: 'none' });
+            const Box = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: Gv() ? 'rgba(46,160,67,.25)' : 'rgba(255,255,255,.04)', border: '1px solid ' + (Gv() ? '#3fb950' : 'rgba(255,255,255,.15)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
+            if (Gv()) { const C = Svg(I_CHECK, '10'); C.style.color = '#3fb950'; Box.appendChild(C); }
             Box.addEventListener('click', () => {
                 const V = !Gv(); Sv(V);
                 Box.style.background = V ? 'rgba(46,160,67,.25)' : 'rgba(255,255,255,.04)';
-                Box.style.border     = '1px solid ' + (V ? 'rgba(46,160,67,.5)' : 'rgba(255,255,255,.12)');
+                Box.style.border     = '1px solid ' + (V ? '#3fb950' : 'rgba(255,255,255,.15)');
                 Box.innerHTML = '';
-                if (V) { const C = Svg(I_CHECK, '11'); C.style.color = '#3fb950'; Box.appendChild(C); }
+                if (V) { const C = Svg(I_CHECK, '10'); C.style.color = '#3fb950'; Box.appendChild(C); }
             });
             Wr.appendChild(Box); Wr.appendChild(Span(Lbl, { fontSize: '12px', color: '#8b949e' })); return Wr;
         }
 
-        const MRW = El('div', { display: 'flex', flexDirection: 'column', gap: '5px' });
+        const MRW = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
         MRW.appendChild(Span('Min ratio (0 = off)', { fontSize: '11px', color: '#555', fontWeight: '600' }));
-        const MRI = El('input', { background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', padding: '5px 9px', fontSize: '13px', fontWeight: '700', width: '80px', outline: 'none', type: 'number', min: '0', step: '0.1' });
-        MRI.className = 'pk-bt-input';
-        MRI.value = '0'; MRI.addEventListener('input', () => { Opts.minRatio = parseFloat(MRI.value) || 0; }); MRW.appendChild(MRI);
+        const MRI = El('input', { background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '4px', padding: '4px 7px', fontSize: '12px', fontWeight: '700', width: '70px', type: 'number', min: '0', step: '0.1' });
+        MRI.className = 'pk-bt-input'; MRI.value = '0';
+        MRI.addEventListener('input', () => { Opts.minRatio = parseFloat(MRI.value) || 0; }); MRW.appendChild(MRI);
 
-        OG.appendChild(NumRow('Delay (seconds)',   () => Opts.delaySec, V => { Opts.delaySec = V; }, 1, 30, 1));
-        OG.appendChild(NumRow('Max users',         () => Opts.maxUsers, V => { Opts.maxUsers = V; }, 1, 200, 10));
+        OG.appendChild(NumRow('Delay (seconds)', () => Opts.delaySec, V => { Opts.delaySec = V; }, 1, 30, 1));
+        OG.appendChild(NumRow('Max users',        () => Opts.maxUsers, V => { Opts.maxUsers = V; }, 1, 200, 10));
         OG.appendChild(MRW); OG.appendChild(El('div', {}));
-        OG.appendChild(ChkRow('Skip duplicate UIDs',              () => Opts.skipDupUid,  V => { Opts.skipDupUid  = V; }));
-        OG.appendChild(ChkRow('Skip users with pending trade',    () => Opts.skipPending, V => { Opts.skipPending = V; }));
-        OG.appendChild(ChkRow('Request multiple copies (up to 4)', () => Opts.multiItems, V => { Opts.multiItems  = V; }));
+        OG.appendChild(ChkRow('Skip duplicate UIDs',               () => Opts.skipDupUid,  V => { Opts.skipDupUid  = V; }));
+        OG.appendChild(ChkRow('Skip users with pending trade',     () => Opts.skipPending, V => { Opts.skipPending = V; }));
+        OG.appendChild(ChkRow('Request multiple copies (up to 4)', () => Opts.multiItems,  V => { Opts.multiItems  = V; }));
         BlastPage.appendChild(OG);
 
         // ── Log box ───────────────────────────────────────────────────────
-        const LogBox = El('div', { background: '#060a0f', borderRadius: '7px', padding: '10px 12px', height: '140px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '12px' });
+        const LogBox = El('div', { background: '#060a0f', borderRadius: '6px', padding: '8px 10px', height: '130px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '10px' });
         BlastPage.appendChild(LogBox);
         const Log = (T, C) => LogLine(LogBox, T, C);
 
         // ── Footer ────────────────────────────────────────────────────────
-        const BF      = El('div', { display: 'flex', gap: '8px', alignItems: 'center' });
-        const SendBtn = El('button', { flex: '1', padding: '10px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#1a7f37', border: '1px solid #2ea043', borderRadius: '7px', cursor: 'pointer' });
-        SendBtn.className = 'pk-bt-btn';
-        SendBtn.textContent = 'Send All Trades'; SendBtn.dataset.idleLabel = 'Send All Trades';
-        const StopBtn = El('button', { padding: '10px 18px', fontSize: '13px', fontWeight: '700', color: '#fff', background: 'rgba(248,81,73,.15)', border: '1px solid rgba(248,81,73,.4)', borderRadius: '7px', cursor: 'pointer' });
-        StopBtn.className = 'pk-bt-btn';
-        StopBtn.textContent = 'Stop';
-        const CsvBtn  = El('button', { padding: '10px 14px', fontSize: '12px', fontWeight: '600', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '7px', cursor: 'pointer' });
-        CsvBtn.className = 'pk-bt-btn';
-        CsvBtn.textContent = 'CSV';
+        const BF = El('div', { display: 'flex', gap: '8px', alignItems: 'center' });
+        const SendBtn = El('button', { flex: '1', padding: '9px 0', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#1a7f37', border: '1px solid #2ea043', borderRadius: '6px' });
+        SendBtn.className = 'pk-bt-btn'; SendBtn.textContent = 'Send All Trades'; SendBtn.dataset.idleLabel = 'Send All Trades';
+        const StopBtn = El('button', { padding: '9px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: 'rgba(248,81,73,.15)', border: '1px solid rgba(248,81,73,.4)', borderRadius: '6px' });
+        StopBtn.className = 'pk-bt-btn'; StopBtn.textContent = 'Stop';
+        const CsvBtn = El('button', { padding: '9px 12px', fontSize: '11px', fontWeight: '600', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px' });
+        CsvBtn.className = 'pk-bt-btn'; CsvBtn.textContent = 'CSV';
 
         let TradeLog = [];
         CsvBtn.addEventListener('click',  () => { if (!TradeLog.length) { Toast('No trades to export', 'warn'); return; } ExportCsv(TradeLog); });
-        StopBtn.addEventListener('click', () => { BT_Abort = true; Log('Stopped by user.', '#f85149'); SetBtnState(SendBtn, 'idle'); BT_Running = false; });
+        StopBtn.addEventListener('click', () => { BT_Abort = true; Log('Stopped.', '#f85149'); SetBtnState(SendBtn, 'idle'); BT_Running = false; });
 
         SendBtn.addEventListener('click', async () => {
-            console.log('[PK+ SendBtn] clicked — BT_Running:', BT_Running, 'SelOffer.size:', SelOffer.size, 'TgtId:', TgtId);
+            console.log('[PK+ SendBtn] SelOffer:', [...SelOffer], 'TgtId:', TgtId);
             if (BT_Running) return;
             if (!SelOffer.size) { Toast('Select at least one offer item', 'warn'); return; }
             if (!TgtId)         { Toast('Set a target item first', 'warn'); return; }
@@ -823,22 +716,19 @@
             SetBtnState(SendBtn, 'running'); LogBox.innerHTML = '';
 
             const MyUAIds  = [...SelOffer].map(Number);
-            console.log('[PK+ SendBtn] MyUAIds (numbers):', MyUAIds);
-            console.log('[PK+ SendBtn] InvItems count:', InvItems.length);
             const Kmap     = NS.KCache || {};
-            console.log('[PK+ SendBtn] KCache keys:', Object.keys(Kmap).length);
-            const OfferVal = MyUAIds.reduce((S, UAId) => { const I = InvItems.find(X => X.userAssetId === UAId); return S + (I ? (I.value > 0 ? I.value : I.rap) : 0); }, 0);
-            console.log('[PK+ SendBtn] OfferVal:', OfferVal);
+            const OfferVal = MyUAIds.reduce((S, UAId) => {
+                const I = InvItems.find(X => X.userAssetId === UAId);
+                return S + (I ? (I.value > 0 ? I.value : I.rap) : 0);
+            }, 0);
 
             Log('Target: ' + TgtName + ' (ID ' + TgtId + ')');
             Log('Fetching owners...');
             const Owners = await FetchOwners(TgtId, Log);
-            console.log('[PK+ SendBtn] owners returned:', Owners.length);
             if (!Owners.length) { Log('No owners found.', '#f85149'); SetBtnState(SendBtn, 'error'); BT_Running = false; return; }
 
             const Capped = Owners.slice(0, Opts.maxUsers);
-            Log('Sending to ' + Capped.length + ' owners, ' + Opts.delaySec + 's delay', '#58a6ff');
-            console.log('[PK+ SendBtn] first 3 owners:', JSON.stringify(Capped.slice(0, 3)));
+            Log('Sending to ' + Capped.length + ' owners (' + Opts.delaySec + 's delay)', '#58a6ff');
 
             let Sent = 0, Skipped = 0, Failed = 0;
             const SeenUids = new Set();
@@ -846,30 +736,29 @@
             for (let Idx = 0; Idx < Capped.length; Idx++) {
                 if (BT_Abort) break;
                 const Owner = Capped[Idx];
-                console.log('[PK+ SendBtn] processing owner', Idx + 1, '/', Capped.length, '—', Owner.username, '(' + Owner.userId + ')');
                 if (Opts.minRatio > 0) {
-                    const TK = Kmap[TgtId] || {};
+                    const TK  = Kmap[TgtId] || {};
                     const RV2 = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
                     const R2  = RV2 > 0 ? OfferVal / RV2 : 0;
-                    if (R2 < Opts.minRatio) { Log('Skip ' + Owner.username + ' ratio ' + R2.toFixed(2) + 'x', '#3d4451'); Skipped++; continue; }
+                    if (R2 < Opts.minRatio) { Log('Skip ' + Owner.username + ' (ratio ' + R2.toFixed(2) + 'x)', '#444'); Skipped++; continue; }
                 }
-                if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup ' + Owner.username, '#3d4451'); Skipped++; continue; }
+                if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup ' + Owner.username, '#444'); Skipped++; continue; }
                 SeenUids.add(Owner.userId);
-                // Request multiple copies if the owner has more than one and multiItems is on
                 const TheirUAIds = Opts.multiItems ? Owner.userAssetIds.slice(0, 4) : [Owner.userAssetIds[0]];
-                console.log('[PK+ SendBtn] TheirUAIds:', TheirUAIds, 'multiItems:', Opts.multiItems);
                 try {
                     await SendTrade(MyUAIds, Owner.userId, TheirUAIds);
                     Log('Sent to ' + Owner.username + ' (' + Owner.userId + ')' + (TheirUAIds.length > 1 ? ' [x' + TheirUAIds.length + ']' : ''), '#3fb950');
                     TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Sent', detail: Owner.username });
                     Sent++;
                 } catch (E) {
-                    console.error('[PK+ SendBtn] trade failed for', Owner.username, ':', E.message);
                     Log('Failed ' + Owner.username + ': ' + E.message, '#f85149');
                     TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Failed', detail: E.message });
                     Failed++;
                 }
-                if (!BT_Abort && Idx < Capped.length - 1) { Log('Waiting ' + Opts.delaySec + 's...', '#3d4451'); await Sleep(Opts.delaySec * 1000); }
+                if (!BT_Abort && Idx < Capped.length - 1) {
+                    Log('Waiting ' + Opts.delaySec + 's...', '#444');
+                    await Sleep(Opts.delaySec * 1000);
+                }
             }
             const Summ = 'Done — Sent: ' + Sent + '  Skipped: ' + Skipped + '  Failed: ' + Failed;
             Log(Summ, '#3fb950'); Toast(Summ, 'success');
@@ -885,54 +774,53 @@
         const CancelPage = El('div', { display: 'none' });
         CancelPage.appendChild(SecLbl('Outbound Trades'));
 
-        const CTR    = El('div', { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' });
-        const LTBtn  = El('button', { padding: '7px 16px', fontSize: '12px', fontWeight: '700', color: '#e6edf3', background: 'rgba(31,111,235,.2)', border: '1px solid rgba(56,139,253,.4)', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' });
-        LTBtn.className = 'pk-bt-btn';
-        LTBtn.appendChild(Svg(I_PACK, '12'));
-        LTBtn.appendChild(document.createTextNode(' Load Trades'));
+        const CTR   = El('div', { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' });
+        const LTBtn = El('button', { padding: '6px 14px', fontSize: '12px', fontWeight: '700', color: '#e6edf3', background: 'rgba(31,111,235,.2)', border: '1px solid rgba(56,139,253,.4)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' });
+        LTBtn.className = 'pk-bt-btn'; LTBtn.textContent = 'Load Trades';
 
-        const CFInpWrap = El('div', { position: 'relative', flex: '1', minWidth: '120px', display: 'flex', alignItems: 'center' });
-        const CFIcon = El('div', { position: 'absolute', left: '9px', color: '#555', display: 'flex', pointerEvents: 'none' });
+        const CFWrap = El('div', { position: 'relative', flex: '1', minWidth: '120px', display: 'flex', alignItems: 'center' });
+        const CFIcon = El('div', { position: 'absolute', left: '8px', color: '#555', display: 'flex', pointerEvents: 'none' });
         CFIcon.appendChild(Svg(I_SEARCH, '12'));
-        const CFInp  = El('input', { width: '100%', padding: '6px 10px 6px 28px', background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', fontSize: '12px', outline: 'none' });
-        CFInp.className = 'pk-bt-input';
-        CFInp.placeholder = 'Filter by username...';
-        CFInpWrap.appendChild(CFIcon); CFInpWrap.appendChild(CFInp);
+        const CFInp = El('input', { width: '100%', padding: '5px 8px 5px 26px', background: '#161b22', color: '#e6edf3', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', fontSize: '12px' });
+        CFInp.className = 'pk-bt-input'; CFInp.placeholder = 'Filter by username...';
+        CFWrap.appendChild(CFIcon); CFWrap.appendChild(CFInp);
 
-        const AR     = El('div', { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#555', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px', padding: '4px 10px' });
+        const ARWrap = El('div', { display: 'flex', alignItems: 'center', gap: '5px', background: '#161b22', border: '1px solid rgba(255,255,255,.1)', borderRadius: '5px', padding: '3px 8px', fontSize: '11px', color: '#555' });
         let CAgeDays = 7;
-        const MkAB   = T => { const B = El('button', { width: '20px', height: '20px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '3px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.className = 'pk-bt-btn'; B.textContent = T; return B; };
-        const AMn    = MkAB('−'), APl = MkAB('+');
-        const AD     = El('span', { fontSize: '12px', fontWeight: '700', color: '#e6edf3', minWidth: '24px', textAlign: 'center' }); AD.textContent = '7d';
+        const MkAB = T => { const B = El('button', { width: '18px', height: '18px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '3px', color: '#e6edf3', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.className = 'pk-bt-btn'; B.textContent = T; return B; };
+        const AMn = MkAB('−'), APl = MkAB('+');
+        const AD = El('span', { fontSize: '11px', fontWeight: '700', color: '#e6edf3', minWidth: '22px', textAlign: 'center' }); AD.textContent = '7d';
         AMn.addEventListener('click', () => { CAgeDays = Math.max(1,  CAgeDays - 1); AD.textContent = CAgeDays + 'd'; });
         APl.addEventListener('click',  () => { CAgeDays = Math.min(60, CAgeDays + 1); AD.textContent = CAgeDays + 'd'; });
-        AR.appendChild(Span('Older than', { fontSize: '11px' })); AR.appendChild(AMn); AR.appendChild(AD); AR.appendChild(APl);
-        CTR.appendChild(LTBtn); CTR.appendChild(CFInpWrap); CTR.appendChild(AR);
+        ARWrap.appendChild(Span('Older than')); ARWrap.appendChild(AMn); ARWrap.appendChild(AD); ARWrap.appendChild(APl);
+        CTR.appendChild(LTBtn); CTR.appendChild(CFWrap); CTR.appendChild(ARWrap);
         CancelPage.appendChild(CTR);
 
-        const SR   = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', cursor: 'pointer', userSelect: 'none' });
-        const SBox = El('div', { width: '17px', height: '17px', borderRadius: '4px', flexShrink: '0', background: 'rgba(46,160,67,.25)', border: '1px solid rgba(46,160,67,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-        const SCk  = Svg(I_CHECK, '11'); SCk.style.color = '#3fb950'; SBox.appendChild(SCk);
+        const SR   = El('div', { display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' });
+        const SBox = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: 'rgba(46,160,67,.25)', border: '1px solid #3fb950', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        const SCk  = Svg(I_CHECK, '10'); SCk.style.color = '#3fb950'; SBox.appendChild(SCk);
         const SCnt = Span('', { fontSize: '11px', color: '#555', marginLeft: 'auto' });
         SR.appendChild(SBox); SR.appendChild(Span('Select all', { fontSize: '12px', color: '#8b949e' })); SR.appendChild(SCnt);
         CancelPage.appendChild(SR);
 
-        const TList   = El('div', { height: '170px', overflowY: 'auto', background: '#060a0f', borderRadius: '7px', padding: '6px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '12px' });
-        let OBTrades  = [], SelT = new Set();
+        const TList  = El('div', { height: '160px', overflowY: 'auto', background: '#060a0f', borderRadius: '6px', padding: '4px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '10px' });
+        let OBTrades = [], SelT = new Set();
         CancelPage.appendChild(TList);
 
         function RenderCancelList(F) {
             TList.innerHTML = '';
             const Now = Date.now(), Cut = CAgeDays * 86400000, FL = (F || '').toLowerCase();
             const Vis = OBTrades.filter(T => (!FL || T.pn.toLowerCase().includes(FL)) && (Now - new Date(T.sa).getTime() >= Cut));
-            if (!Vis.length) { TList.appendChild(Span('No trades match.', { fontSize: '12px', color: '#3d4451', padding: '10px', display: 'block' })); SCnt.textContent = SelT.size + ' selected'; return; }
+            if (!Vis.length) { TList.appendChild(Span('No trades match.', { fontSize: '12px', color: '#444', padding: '10px', display: 'block' })); SCnt.textContent = SelT.size + ' selected'; return; }
             Vis.forEach(T => {
                 const Sel = SelT.has(T.id);
-                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(248,81,73,.1)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(248,81,73,.3)' : 'transparent'), marginBottom: '2px' });
+                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(248,81,73,.1)' : 'transparent', border: '1px solid ' + (Sel ? 'rgba(248,81,73,.3)' : 'transparent'), marginBottom: '2px' });
                 Row.className = 'pk-bt-row';
-                const CB  = El('div', { width: '15px', height: '15px', borderRadius: '3px', flexShrink: '0', background: Sel ? 'rgba(248,81,73,.25)' : 'rgba(255,255,255,.04)', border: '1px solid ' + (Sel ? 'rgba(248,81,73,.5)' : 'rgba(255,255,255,.12)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
+                const CB = El('div', { width: '14px', height: '14px', borderRadius: '3px', flexShrink: '0', background: Sel ? 'rgba(248,81,73,.25)' : 'rgba(255,255,255,.04)', border: '1px solid ' + (Sel ? '#f85149' : 'rgba(255,255,255,.15)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
                 if (Sel) { const C = Svg(I_CHECK, '9'); C.style.color = '#f85149'; CB.appendChild(C); }
-                Row.appendChild(CB); Row.appendChild(Span(T.pn, { flex: '1', fontSize: '12px', color: '#e6edf3' })); Row.appendChild(Span(new Date(T.sa).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#3d4451' }));
+                Row.appendChild(CB);
+                Row.appendChild(Span(T.pn, { flex: '1', fontSize: '12px', color: '#e6edf3' }));
+                Row.appendChild(Span(new Date(T.sa).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#444' }));
                 Row.addEventListener('click', () => { if (SelT.has(T.id)) SelT.delete(T.id); else SelT.add(T.id); RenderCancelList(CFInp.value); });
                 TList.appendChild(Row);
             });
@@ -943,59 +831,57 @@
             const Cut = CAgeDays * 86400000, FL = CFInp.value.toLowerCase();
             const Vis = OBTrades.filter(T => (!FL || T.pn.toLowerCase().includes(FL)) && (Date.now() - new Date(T.sa).getTime() >= Cut));
             const All = Vis.length > 0 && Vis.every(T => SelT.has(T.id));
-            if (All) { Vis.forEach(T => SelT.delete(T.id)); SBox.innerHTML = ''; SBox.style.background = 'rgba(255,255,255,.04)'; SBox.style.border = '1px solid rgba(255,255,255,.12)'; }
-            else     { Vis.forEach(T => SelT.add(T.id));    SBox.innerHTML = ''; SBox.style.background = 'rgba(46,160,67,.25)'; SBox.style.border = '1px solid rgba(46,160,67,.5)'; const C = Svg(I_CHECK,'11'); C.style.color='#3fb950'; SBox.appendChild(C); }
+            if (All) { Vis.forEach(T => SelT.delete(T.id)); SBox.innerHTML = ''; SBox.style.background = 'rgba(255,255,255,.04)'; SBox.style.border = '1px solid rgba(255,255,255,.15)'; }
+            else     { Vis.forEach(T => SelT.add(T.id));    SBox.innerHTML = ''; SBox.style.background = 'rgba(46,160,67,.25)'; SBox.style.border = '1px solid #3fb950'; const C = Svg(I_CHECK,'10'); C.style.color='#3fb950'; SBox.appendChild(C); }
             RenderCancelList(CFInp.value);
         });
         CFInp.addEventListener('input', () => RenderCancelList(CFInp.value));
 
         LTBtn.addEventListener('click', async () => {
-            LTBtn.lastChild.textContent = ' Loading...'; LTBtn.disabled = true;
+            LTBtn.textContent = 'Loading...'; LTBtn.disabled = true;
             OBTrades = []; SelT.clear(); TList.innerHTML = '';
-            TList.appendChild(Span('Fetching outbound trades...', { fontSize: '12px', color: '#555', padding: '10px', display: 'block' }));
+            TList.appendChild(Span('Fetching outbound trades...', { fontSize: '12px', color: '#555', padding: '8px', display: 'block' }));
             try {
                 let Cur = null, Pg = 1, All = [];
                 do {
                     const CursorPart = (Cur != null && Cur !== '') ? '&cursor=' + Cur : '';
-                    const R = await fetch('/apisite/trades/v1/trades/outbound?limit=100&sortOrder=Desc' + CursorPart, { credentials: 'include' }).then(R2 => R2.json());
-                    All = All.concat(R.data || []);
-                    const Next = R.nextPageCursor;
+                    const J = await GmGet('https://www.pekora.zip/apisite/trades/v1/trades/outbound?limit=100&sortOrder=Desc' + CursorPart);
+                    All = All.concat(J.data || []);
+                    const Next = J.nextPageCursor;
                     Cur = (Next != null && Next !== '') ? Next : null;
                     Pg++;
                 } while (Cur && Pg <= 10);
-                OBTrades = All.map(T => ({ id: T.id, pn: T.user?.name || String(T.user?.id || '?'), sa: T.created }));
+                OBTrades = All.map(T => ({ id: T.id, pn: (T.user && T.user.name) || String((T.user && T.user.id) || '?'), sa: T.created }));
                 const Cut = CAgeDays * 86400000;
                 OBTrades.filter(T => (Date.now() - new Date(T.sa).getTime()) >= Cut).forEach(T => SelT.add(T.id));
-                RenderCancelList(''); LTBtn.lastChild.textContent = ' ' + OBTrades.length + ' loaded';
+                RenderCancelList(''); LTBtn.textContent = OBTrades.length + ' loaded';
             } catch (E) {
-                TList.innerHTML = ''; TList.appendChild(Span('Failed: ' + E.message, { fontSize: '12px', color: '#f85149', padding: '10px', display: 'block' }));
-                LTBtn.lastChild.textContent = ' Load Trades';
+                TList.innerHTML = ''; TList.appendChild(Span('Failed: ' + E.message, { fontSize: '12px', color: '#f85149', padding: '8px', display: 'block' }));
+                LTBtn.textContent = 'Load Trades';
             }
             LTBtn.disabled = false;
         });
 
-        const CDR = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', fontSize: '12px', color: '#555', background: '#161b22', border: '1px solid rgba(255,255,255,.07)', borderRadius: '6px', padding: '8px 12px' });
-        CDR.appendChild(Span('Delay between cancels:', { fontSize: '11px', color: '#555' }));
-        let CDel  = 2;
-        const MkCB = T => { const B = El('button', { width: '22px', height: '22px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.className = 'pk-bt-btn'; B.textContent = T; return B; };
+        const CDR = El('div', { display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px', fontSize: '11px', color: '#555', background: '#161b22', border: '1px solid rgba(255,255,255,.07)', borderRadius: '5px', padding: '6px 10px' });
+        CDR.appendChild(Span('Delay between cancels:'));
+        let CDel = 2;
+        const MkCB = T => { const B = El('button', { width: '20px', height: '20px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '3px', color: '#e6edf3', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.className = 'pk-bt-btn'; B.textContent = T; return B; };
         const CMn = MkCB('−'), CPl = MkCB('+');
-        const CD  = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' }); CD.textContent = '2s';
+        const CD = El('span', { fontSize: '12px', fontWeight: '700', color: '#e6edf3', minWidth: '26px', textAlign: 'center' }); CD.textContent = '2s';
         CMn.addEventListener('click', () => { CDel = Math.max(1,  CDel - 1); CD.textContent = CDel + 's'; });
         CPl.addEventListener('click',  () => { CDel = Math.min(30, CDel + 1); CD.textContent = CDel + 's'; });
         CDR.appendChild(CMn); CDR.appendChild(CD); CDR.appendChild(CPl);
         CancelPage.appendChild(CDR);
 
-        const CLBox = El('div', { background: '#060a0f', borderRadius: '7px', padding: '10px 12px', height: '90px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '12px' });
+        const CLBox = El('div', { background: '#060a0f', borderRadius: '6px', padding: '8px 10px', height: '80px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.06)', marginBottom: '10px' });
         const CLog  = (T, C) => LogLine(CLBox, T, C);
         CancelPage.appendChild(CLBox);
 
-        const CF      = El('div', { display: 'flex', gap: '8px' });
-        const DCBtn   = El('button', { flex: '1', padding: '10px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: 'rgba(248,81,73,.2)', border: '1px solid rgba(248,81,73,.4)', borderRadius: '7px', cursor: 'pointer' });
-        DCBtn.className = 'pk-bt-btn';
-        DCBtn.textContent = 'Cancel Selected';
-        const CSBtn   = El('button', { padding: '10px 18px', fontSize: '13px', fontWeight: '700', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '7px', cursor: 'pointer' });
-        CSBtn.className = 'pk-bt-btn';
-        CSBtn.textContent = 'Stop';
+        const CF    = El('div', { display: 'flex', gap: '8px' });
+        const DCBtn = El('button', { flex: '1', padding: '9px 0', fontSize: '13px', fontWeight: '700', color: '#fff', background: 'rgba(248,81,73,.2)', border: '1px solid rgba(248,81,73,.4)', borderRadius: '6px' });
+        DCBtn.className = 'pk-bt-btn'; DCBtn.textContent = 'Cancel Selected';
+        const CSBtn = El('button', { padding: '9px 14px', fontSize: '12px', fontWeight: '700', color: '#8b949e', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '6px' });
+        CSBtn.className = 'pk-bt-btn'; CSBtn.textContent = 'Stop';
         CSBtn.addEventListener('click', () => { CancelAbort = true; CLog('Stopped.', '#f85149'); DCBtn.disabled = false; DCBtn.textContent = 'Cancel Selected'; CancelRunning = false; });
 
         DCBtn.addEventListener('click', async () => {
@@ -1010,8 +896,8 @@
                 const TId = Ids[I];
                 try {
                     const Csrf = await GetCsrf();
-                    const R    = await fetch('/apisite/trades/v1/trades/' + TId + '/decline', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'x-csrf-token': Csrf } });
-                    if (!R.ok) throw new Error('HTTP ' + R.status);
+                    const R    = await GmPost('https://www.pekora.zip/apisite/trades/v1/trades/' + TId + '/decline', {}, { 'x-csrf-token': Csrf });
+                    if (R.status < 200 || R.status >= 300) throw new Error('HTTP ' + R.status);
                     CLog('Cancelled ' + TId, '#3fb950'); SelT.delete(TId); Done++;
                 } catch (E) { CLog(TId + ': ' + E.message, '#f85149'); Fail++; }
                 if (!CancelAbort && I < Ids.length - 1) await Sleep(CDel * 1000);
@@ -1029,10 +915,7 @@
         Pages.forEach(P => Content.appendChild(P));
         TabBtns.forEach((B, I) => {
             B.addEventListener('click', () => {
-                TabBtns.forEach((Btn, J) => {
-                    Btn.style.color       = J === I ? '#e6edf3' : '#555';
-                    Btn.style.borderBottom = J === I ? '2px solid #2ea043' : '2px solid transparent';
-                });
+                TabBtns.forEach((Btn, J) => { Btn.style.color = J === I ? '#e6edf3' : '#555'; Btn.style.borderBottom = J === I ? '2px solid #2ea043' : '2px solid transparent'; });
                 Pages.forEach((P, J) => { P.style.display = J === I ? '' : 'none'; });
             });
         });
@@ -1040,14 +923,6 @@
         Panel.appendChild(Hdr); Panel.appendChild(TabBar); Panel.appendChild(Content);
         Overlay.appendChild(Panel); document.body.appendChild(Overlay);
     }
-
-    // ── Also expose GetKMap on NS so the module can call it ───────────────
-    // The main script defines GetKMap locally but we need it here.
-    // We hook into the NS object — if the main script sets NS.KCache,
-    // we can read it. If not yet set, we call NS.GetKMap if available.
-    // IMPORTANT: The main userscript.js must also do:
-    //   window.PekoraPlus.GetKMap = GetKMap;
-    // Add that one line after the GetKMap definition in the main script.
 
     NS.BulkTrade = { OpenPanel: BuildBulkTradePanel };
 
