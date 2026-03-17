@@ -1,42 +1,40 @@
 /* Pekora+ Ultra Clean Modern Theme */
 
-/* Root Variables */
+/* ── Variables ───────────────────────────────────────────────────────────── */
 :root {
-    --primary: #5865f2;
-    --primary-dark: #4752c4;
-    --secondary: #8b5cf6;
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --dark: #0d1117;
-    --dark-lighter: #161b22;
-    --dark-card: #21262d;
-    --dark-hover: #30363d;
-    --text-primary: #e6edf3;
-    --text-secondary: #8b949e;
-    --text-muted: #484f58;
-    --border: #30363d;
-    --shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
-    --radius: 6px;
-    --radius-lg: 10px;
+    --primary:          #5865f2;
+    --primary-dark:     #4752c4;
+    --secondary:        #8b5cf6;
+    --success:          #10b981;
+    --warning:          #f59e0b;
+    --danger:           #ef4444;
+    --dark:             #0d1117;
+    --dark-lighter:     #161b22;
+    --dark-card:        #21262d;
+    --dark-hover:       #30363d;
+    --text-primary:     #e6edf3;
+    --text-secondary:   #8b949e;
+    --text-muted:       #484f58;
+    --border:           #30363d;
+    --shadow:           0 4px 12px rgba(0,0,0,.5);
+    --shadow-lg:        0 8px 24px rgba(0,0,0,.6);
+    --radius:           6px;
+    --radius-lg:        10px;
 
-    /* Override site's brown theme colors */
-    --primary-color: #5865f2 !important;
-    --primary-color-2: #4752c4 !important;
-    --primary-color-hover: #4752c4 !important;
-    --secondary-color: #161b22 !important;
-    --white-color: #161b22 !important;
-    --white-color-hover: #21262d !important;
-    --text-color-primary: #e6edf3 !important;
-    --text-color-secondary: #8b949e !important;
-    --text-color-tertiary: #8b949e !important;
+    /* Override site brown palette */
+    --primary-color:          #5865f2 !important;
+    --primary-color-2:        #4752c4 !important;
+    --primary-color-hover:    #4752c4 !important;
+    --secondary-color:        #161b22 !important;
+    --white-color:            #161b22 !important;
+    --white-color-hover:      #21262d !important;
+    --text-color-primary:     #e6edf3 !important;
+    --text-color-secondary:   #8b949e !important;
+    --text-color-tertiary:    #8b949e !important;
 }
 
-/* Global Reset */
-* {
-    box-sizing: border-box !important;
-}
+/* ── Global ──────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box !important; }
 
 body, html {
     background: var(--dark) !important;
@@ -45,244 +43,175 @@ body, html {
     line-height: 1.5 !important;
 }
 
-/* Navigation */
-.navbar-0-2-1 {
+h1, h2, h3 { color: var(--text-primary) !important; }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar              { width: 6px !important; }
+::-webkit-scrollbar-track        { background: var(--dark) !important; }
+::-webkit-scrollbar-thumb        { background: var(--border) !important; border-radius: 3px !important; }
+::-webkit-scrollbar-thumb:hover  { background: var(--text-muted) !important; }
+
+/* ── Navigation ──────────────────────────────────────────────────────────── */
+[class*="navbar-"],
+#stylable-nav-bar,
+#stylable-nav-bar.navbar {
     background: var(--dark-lighter) !important;
+    background-color: var(--dark-lighter) !important;
+    background-image: none !important;
     border-bottom: 1px solid var(--border) !important;
     box-shadow: none !important;
 }
 
-.navbar-d1-0-2-8 {
-    background: var(--dark-lighter) !important;
-    background-image: none !important;
-}
+[class*="navContainer-"] { background: transparent !important; }
 
-/* Force navbar color via ID — wins over inline/class styles */
-#stylable-nav-bar,
-#stylable-nav-bar.navbar {
-    background: var(--dark-lighter) !important;
-    background-image: none !important;
-    background-color: var(--dark-lighter) !important;
-}
-
-.navContainer-0-2-2 {
-    background: transparent !important;
-}
-
-/* Nav Links */
-.linkEntry-0-2-15 {
+[class*="linkEntry-"] {
     color: var(--text-secondary) !important;
     font-weight: 500 !important;
     padding: 6px 12px !important;
     border-radius: var(--radius) !important;
-    transition: all 0.15s ease !important;
+    transition: color .15s ease, background .15s ease !important;
     text-decoration: none !important;
     font-size: 15px !important;
 }
-
-.linkEntry-0-2-15:hover {
+[class*="linkEntry-"]:hover {
     color: var(--text-primary) !important;
     background: var(--dark-hover) !important;
     text-decoration: none !important;
 }
 
-.linkEntry-0-2-15.active {
-    color: var(--text-primary) !important;
-}
-
-/* Search Bar */
-.wrapper-0-2-20 {
+/* ── Search ──────────────────────────────────────────────────────────────── */
+[class*="wrapper-"][class*="search"],
+[class*="searchWrapper-"] {
     background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
-    transition: border-color 0.15s ease !important;
+    transition: border-color .15s ease !important;
 }
-
-.wrapper-0-2-20:focus-within {
+[class*="wrapper-"][class*="search"]:focus-within,
+[class*="searchWrapper-"]:focus-within {
     border-color: var(--primary) !important;
-    box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.15) !important;
+    box-shadow: 0 0 0 3px rgba(88,101,242,.15) !important;
 }
-
-.searchInput-0-2-21 {
+[class*="searchInput-"] {
     background: transparent !important;
     color: var(--text-primary) !important;
     border: none !important;
-    font-weight: 400 !important;
 }
+[class*="searchInput-"]::placeholder { color: var(--text-muted) !important; }
 
-.searchInput-0-2-21::placeholder {
-    color: var(--text-muted) !important;
-}
+/* ── Currency ────────────────────────────────────────────────────────────── */
+[class*="currencySpan-"] { color: var(--text-primary) !important; font-weight: 500 !important; }
 
-/* Currency */
-.currencySpan-0-2-133,
-.currencySpan-0-2-97 {
-    color: var(--text-primary) !important;
-    font-weight: 500 !important;
-}
+/* ── Main / Container ────────────────────────────────────────────────────── */
+[class*="main-"]      { background: var(--dark) !important; }
+[class*="container-"] { background: transparent !important; }
 
-/* Main */
-.main-0-2-29 {
-    background: var(--dark) !important;
-}
-
-.container-0-2-32 {
-    background: transparent !important;
-}
-
-/* Home Header */
-.homeHeader-0-2-36 {
+/* ── Home Header ─────────────────────────────────────────────────────────── */
+[class*="homeHeader-"] {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-lg) !important;
     padding: 20px !important;
     margin-bottom: 16px !important;
 }
-
-.helloMessage-0-2-39 {
+[class*="helloMessage-"] {
     color: var(--text-primary) !important;
     font-weight: 700 !important;
     font-size: 32px !important;
     text-decoration: none !important;
 }
-
-.headshotWrapper-0-2-37 {
+[class*="headshotWrapper-"] {
     background-color: var(--dark-card) !important;
     box-shadow: none !important;
     border: 2px solid var(--border) !important;
 }
 
-/* Section Headers */
-.containerHeader-0-2-31 {
+/* ── Section Headers ─────────────────────────────────────────────────────── */
+[class*="containerHeader-"] {
     border-bottom: 1px solid var(--border) !important;
     padding-bottom: 10px !important;
     margin-bottom: 16px !important;
 }
-
-.containerHeader-0-2-31 h3 {
+[class*="containerHeader-"] h3 {
     color: var(--text-primary) !important;
     font-weight: 700 !important;
     font-size: 20px !important;
     margin: 0 !important;
 }
 
-/* Friends section */
-.friendSection-0-2-40 .section-content {
+/* ── Friends ─────────────────────────────────────────────────────────────── */
+[class*="friendSection-"] .section-content {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-lg) !important;
     padding: 16px !important;
     margin-bottom: 16px !important;
 }
-
-.thumbnailWrapper-0-2-138 {
+[class*="thumbnailWrapper-"] {
     box-shadow: none !important;
     border: 2px solid var(--border) !important;
-    transition: border-color 0.15s ease !important;
+    transition: border-color .15s ease !important;
 }
-
-.thumbnailWrapper-0-2-138:hover {
+[class*="thumbnailWrapper-"]:hover {
     box-shadow: none !important;
     border-color: var(--primary) !important;
 }
-
-.username-0-2-139 {
+[class*="username-"] {
     color: var(--text-secondary) !important;
     font-weight: 500 !important;
     font-size: 12px !important;
 }
+[class*="username-"]:hover { color: var(--primary) !important; }
 
-.username-0-2-139:hover {
-    color: var(--primary) !important;
-}
-
-/* Game Cards */
-.gameCardContainer-0-2-145 {
+/* ── Game Cards ──────────────────────────────────────────────────────────── */
+[class*="gameCardContainer-"] {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-lg) !important;
     box-shadow: none !important;
-    transition: border-color 0.15s ease, transform 0.15s ease !important;
+    transition: border-color .15s ease, box-shadow .15s ease !important;
+    overflow: hidden !important;
 }
-
-.gameCardContainer-0-2-145:hover {
+[class*="gameCardContainer-"]:hover {
     border-color: var(--primary) !important;
     box-shadow: 0 0 0 1px var(--primary) !important;
-    transform: none !important;
 }
-
-/* Hide the ugly popup footer on hover */
-.gameCardContainer-0-2-145:hover div {
-    display: unset !important;
-}
-
-.gameCardFooterContainer-0-2-172 {
-    display: none !important;
-}
-
-.gameCardThumbContainer-0-2-147 {
+[class*="gameCardFooterContainer-"] { display: none !important; }
+[class*="gameCardThumbContainer-"] {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
     overflow: hidden !important;
 }
-
-.gameCardThumbContainer-0-2-147 img {
+[class*="gameCardThumbContainer-"] img {
     border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
-    transition: transform 0.2s ease !important;
+    transition: transform .2s ease !important;
+    display: block !important;
+    width: 100% !important;
 }
-
-.gameCardContainer-0-2-145:hover .gameCardThumbContainer-0-2-147 img {
+[class*="gameCardContainer-"]:hover [class*="gameCardThumbContainer-"] img {
     transform: scale(1.04) !important;
 }
+[class*="gameCardTitle-"]   { color: var(--text-primary) !important; font-weight: 600 !important; font-size: 13px !important; }
+[class*="gameCardPlaying-"] { color: var(--text-secondary) !important; }
+[class*="playerCount-"]     { color: var(--text-secondary) !important; }
+[class*="yearText"]         { color: var(--text-muted) !important; }
+[class*="creatorText-"]     { color: var(--text-secondary) !important; }
+[class*="creatorText-"] a   { color: var(--primary) !important; }
 
-.gameCardTitle-0-2-149 {
-    color: var(--text-primary) !important;
-    font-weight: 600 !important;
-    font-size: 13px !important;
-}
-
-.gameCardPlaying-0-2-150 {
-    color: var(--text-secondary) !important;
-}
-
-.playerCount-0-2-180 {
-    color: var(--text-secondary) !important;
-}
-
-.yearText3-0-2-181 {
-    color: var(--text-muted) !important;
-}
-
-.gameCardFooterContainer-0-2-172 {
-    background: var(--dark-card) !important;
-    border-top: 1px solid var(--border) !important;
-}
-
-.creatorText-0-2-175 {
-    color: var(--text-secondary) !important;
-}
-
-.creatorText-0-2-175 a {
-    color: var(--primary) !important;
-}
-
-/* Vote bars */
-.voteBackground-0-2-156 {
+/* ── Vote bars ───────────────────────────────────────────────────────────── */
+[class*="voteBackground-"] {
     background-color: var(--dark-hover) !important;
     border-radius: 3px !important;
+    overflow: hidden !important;
 }
-
-.votePercentage-0-2-159 {
+[class*="votePercentage-"] {
     background-color: var(--success) !important;
     border-radius: 3px !important;
 }
+[class*="segment-"] { background-color: var(--dark-lighter) !important; }
 
-.segment-0-2-160 {
-    background-color: var(--dark-lighter) !important;
-}
-
-/* Buttons */
-.newContinueButton-0-2-59,
-.newBuyButton-0-2-58 {
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+[class*="newContinueButton-"],
+[class*="newBuyButton-"] {
     background: var(--primary) !important;
     color: #fff !important;
     border: none !important;
@@ -290,16 +219,13 @@ body, html {
     font-weight: 600 !important;
     font-size: 13px !important;
     padding: 7px 14px !important;
-    transition: background 0.15s ease !important;
+    transition: background .15s ease !important;
 }
-
-.newContinueButton-0-2-59:hover,
-.newBuyButton-0-2-58:hover {
+[class*="newContinueButton-"]:hover,
+[class*="newBuyButton-"]:hover {
     background: var(--primary-dark) !important;
-    border-color: var(--primary-dark) !important;
 }
-
-.seeAllButton-0-2-48 {
+[class*="seeAllButton-"] {
     background: var(--primary) !important;
     color: #fff !important;
     border: none !important;
@@ -307,92 +233,62 @@ body, html {
     font-weight: 600 !important;
     font-size: 13px !important;
     padding: 5px 14px !important;
-    transition: background 0.15s ease !important;
+    transition: background .15s ease !important;
     box-shadow: none !important;
 }
-
-.seeAllButton-0-2-48:hover {
+[class*="seeAllButton-"]:hover {
     background: var(--primary-dark) !important;
-    border-color: var(--primary-dark) !important;
     box-shadow: none !important;
 }
-
-.newCancelButton-0-2-61 {
+[class*="newCancelButton-"] {
     background: var(--dark-card) !important;
     color: var(--text-secondary) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
-    transition: all 0.15s ease !important;
+    transition: all .15s ease !important;
 }
-
-.newCancelButton-0-2-61:hover {
+[class*="newCancelButton-"]:hover {
     background: var(--dark-hover) !important;
     color: var(--text-primary) !important;
     border-color: var(--primary) !important;
     box-shadow: none !important;
 }
 
-/* Links */
-.aLink-0-2-183 {
-    color: var(--primary) !important;
-    text-decoration: none !important;
-}
+/* ── Links ───────────────────────────────────────────────────────────────── */
+[class*="aLink-"]    { color: var(--primary) !important; text-decoration: none !important; }
+[class*="aLink-"]:hover { color: var(--primary-dark) !important; text-decoration: underline !important; }
+[class*="nameLink-"],
+[class*="nameSpan-"] { color: var(--text-secondary) !important; }
+[class*="nameSpan-"]:hover { color: var(--text-primary) !important; }
 
-.aLink-0-2-183:hover {
-    color: var(--primary-dark) !important;
-    text-decoration: underline !important;
-}
-
-.nameLink-0-2-120,
-.nameSpan-0-2-121 {
-    color: var(--text-secondary) !important;
-}
-
-.nameSpan-0-2-121:hover {
-    color: var(--text-primary) !important;
-}
-
-/* Footer */
-.footerContainer-0-2-64,
-.footerContainer-d0-0-2-69 {
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+[class*="footerContainer-"] {
     background: var(--dark-lighter) !important;
     border-top: 1px solid var(--border) !important;
     box-shadow: none !important;
     margin-top: 40px !important;
 }
-
-.footerLink-0-2-67 a,
-.footerLink-d1-0-2-70 a {
+[class*="footerLink-"] a {
     color: var(--text-secondary) !important;
     text-decoration: none !important;
-    transition: color 0.15s ease !important;
+    transition: color .15s ease !important;
 }
+[class*="footerLink-"] a:hover { color: var(--primary) !important; }
+[class*="footerNote-"]  { color: var(--text-muted) !important; }
 
-.footerLink-0-2-67 a:hover {
-    color: var(--primary) !important;
-}
+/* ── Alerts / Ads ────────────────────────────────────────────────────────── */
+[class*="alertBg-"]   { background: var(--warning) !important; }
+[class*="alertText-"] { color: #fff !important; }
+[class*="skyScraper"],
+[class*="adWrapper"]  { display: none !important; }
 
-.footerNote-0-2-68,
-.footerNote-d2-0-2-71 {
-    color: var(--text-muted) !important;
-}
-
-/* Alert */
-.alertBg-0-2-25 {
-    background: var(--warning) !important;
-}
-
-.alertText-0-2-26 {
-    color: #fff !important;
-}
-
-/* Pekora+ badge */
+/* ── Pekora+ UI ──────────────────────────────────────────────────────────── */
 #pk-nav-badge {
     color: var(--primary) !important;
     padding: 4px 10px !important;
     font-weight: 700 !important;
     font-size: 12px !important;
-    transition: all 0.15s ease !important;
+    transition: all .15s ease !important;
 }
 #pk-config-panel {
     background: var(--dark-card) !important;
@@ -400,7 +296,6 @@ body, html {
     border-radius: var(--radius-lg) !important;
     box-shadow: var(--shadow-lg) !important;
 }
-
 #pk-toast {
     background: var(--dark-card) !important;
     border: 1px solid var(--border) !important;
@@ -408,397 +303,170 @@ body, html {
     color: var(--text-primary) !important;
 }
 
-/* Hide ads */
-[class*="skyScraper"],
-[class*="adWrapper"] {
-    display: none !important;
-}
-
-/* Headers */
-h1, h2, h3 {
-    color: var(--text-primary) !important;
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-    width: 6px !important;
-}
-
-::-webkit-scrollbar-track {
-    background: var(--dark) !important;
-}
-
-::-webkit-scrollbar-thumb {
-    background: var(--border) !important;
-    border-radius: 3px !important;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted) !important;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .gameCardContainer-0-2-145:hover {
-        transform: none !important;
-    }
-}
-
-/* Profile page cards */
-.card-0-2-217 {
-    background: var(--dark-lighter) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-lg) !important;
-}
-
-.cardBody-0-2-207 {
-    background: var(--dark-lighter) !important;
-}
-
-/* Profile header */
-.profileContainer-0-2-189 {
-    background: transparent !important;
-}
-
-.profileHeaderContainer-0-2-206 {
+/* ── Profile ─────────────────────────────────────────────────────────────── */
+[class*="profileContainer-"]      { background: transparent !important; }
+[class*="profileHeaderContainer-"] {
     background: var(--dark-lighter) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-lg) !important;
     margin-bottom: 12px !important;
 }
-
-.username-0-2-194 {
-    color: var(--text-primary) !important;
-    font-weight: 800 !important;
+[class*="card-"] {
+    background: var(--dark-lighter) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
 }
-
-.userStatus-0-2-195 {
-    color: var(--text-secondary) !important;
-}
-
-.avatarHeadshotContainer-0-2-210 {
+[class*="cardBody-"]              { background: var(--dark-lighter) !important; }
+[class*="username-"]              { color: var(--text-primary) !important; }
+[class*="userStatus-"]            { color: var(--text-secondary) !important; }
+[class*="avatarHeadshotContainer-"] {
     background-color: var(--dark-card) !important;
     border-color: var(--border) !important;
 }
-
-/* Profile stats */
-.statHeader-0-2-218 {
-    color: var(--text-secondary) !important;
-}
-
-.statText-0-2-221 {
-    color: var(--primary) !important;
-}
-
-.statTextContainer-0-2-220 {
-    color: var(--primary) !important;
-    text-decoration: none !important;
-}
-
-/* Profile action buttons */
-.buttonHover-0-2-222:hover {
-    color: var(--danger) !important;
-    border-color: var(--danger) !important;
-}
+[class*="statHeader-"]            { color: var(--text-secondary) !important; }
+[class*="statText-"],
+[class*="statTextContainer-"],
+[class*="statValue-"] a           { color: var(--primary) !important; }
+[class*="buttonHover-"]:hover     { color: var(--danger) !important; border-color: var(--danger) !important; }
 
 /* Profile tabs */
-.buttonCol-0-2-228 {
+[class*="buttonCol-"] {
     background: var(--dark-lighter) !important;
     border-bottom: 1px solid var(--border) !important;
 }
-
-.vTabLabel-0-2-225 {
+[class*="vTabLabel-"] {
     background-color: var(--dark-lighter) !important;
     color: var(--text-primary) !important;
     box-shadow: inset 0 -3px 0 0 var(--primary) !important;
 }
-
-.vTabLabel-0-2-225:hover {
-    background: var(--dark-hover) !important;
-}
-
-.vTabUnselected-0-2-230:not(:hover) {
-    box-shadow: none !important;
-}
-
-.count-0-2-231 {
-    background: rgba(88, 101, 242, 0.15) !important;
-    border-color: rgba(88, 101, 242, 0.3) !important;
-    color: var(--primary) !important;
-}
-
-/* Profile section headers */
-.header-0-2-237 {
-    color: var(--text-primary) !important;
-}
-
-/* Profile about body */
-.body-0-2-233 {
-    color: var(--text-secondary) !important;
-    background: var(--dark-lighter) !important;
-}
-
-/* Avatar wearing section */
-.avatarImageCard-0-2-250 {
-    background-color: var(--dark-card) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-lg) !important;
-}
-
-.assetContainerCard-0-2-249 {
-    background: var(--dark-card) !important;
-    background-color: var(--dark-card) !important;
-    border-radius: var(--radius-lg) !important;
-}
-
-/* Item image wrappers in profile */
-.imageWrapper-0-2-271 {
-    border-color: var(--border) !important;
-    border-radius: var(--radius) !important;
-    background: var(--dark-card) !important;
-}
-
-.itemLabel-0-2-273 {
-    color: var(--text-secondary) !important;
-}
-
-/* Friends on profile */
-.avatarWrapper-0-2-266 {
-    background-color: var(--dark-card) !important;
-    box-shadow: none !important;
-    border: 2px solid var(--border) !important;
-    transition: border-color 0.15s ease !important;
-}
-
-.avatarWrapper-0-2-266:hover {
-    box-shadow: none !important;
-    border-color: var(--primary) !important;
-}
-
-.playerName-0-2-267 {
-    color: var(--text-secondary) !important;
-}
-
-.sideRow-0-2-262 {
-    background: var(--dark-lighter) !important;
-}
-
-/* Collections section item borders */
-.imageWrapper-0-2-285 {
-    border-color: var(--border) !important;
-    background: var(--dark-card) !important;
-}
-
-/* Groups section */
-.groupCard-0-2-318 {
-    background-color: var(--dark-lighter) !important;
-    border: 1px solid var(--border) !important;
-}
-
-.groupName-0-2-309 {
-    color: var(--text-primary) !important;
-    border-bottom-color: var(--border) !important;
-}
-
-.description-0-2-310 {
-    color: var(--text-secondary) !important;
-    border-top-color: var(--border) !important;
-}
-
-.header-0-2-320 {
-    color: var(--text-secondary) !important;
-}
-
-.value-0-2-321 {
-    color: var(--text-primary) !important;
-}
-
-.buttonWrapper-0-2-307 {
-    background: var(--primary) !important;
-    border-radius: var(--radius) !important;
-}
-
-.buttonWrapper-0-2-307:hover {
-    background: var(--primary-dark) !important;
-    box-shadow: none !important;
-}
-
-/* Statistics section */
-.label-0-2-292 {
-    color: var(--text-secondary) !important;
-}
-
-.value-0-2-293 {
-    color: var(--text-primary) !important;
-}
-
-/* Profile see all / inventory links */
-.button-0-2-270 {
-    color: var(--primary) !important;
-}
-
-.button-0-2-270:hover {
-    color: var(--primary-dark) !important;
-}
-
-/* Chat panel */
-[class*="chatMenu"] {
-    background: var(--dark-lighter) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
-}
-
-[class*="chatMenuHeader"] {
-    background: var(--dark-card) !important;
-    border-bottom: 1px solid var(--border) !important;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
-}
-
-[class*="chatLabel"] {
-    color: var(--text-primary) !important;
-    font-weight: 600 !important;
-}
-
-/* Settings/logout dropdown */
-.dropdownNew-0-2-391,
-[class*="dropdownClass"] ~ *,
-.dropdown-menu {
-    background: var(--dark-card) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius) !important;
-    box-shadow: var(--shadow-lg) !important;
-}
-
-.dropdown-item,
-[class*="dropdownItem"] {
-    color: var(--text-secondary) !important;
-    transition: background 0.15s ease !important;
-}
-
-.dropdown-item:hover,
-[class*="dropdownItem"]:hover {
-    background: var(--dark-hover) !important;
-    color: var(--text-primary) !important;
-}
-
-/* Report abuse link */
-.link-0-2-246 {
-    color: var(--text-muted) !important;
-}
-
-/* Sidebar */
-.container-0-2-42 {
-    background: var(--dark-lighter) !important;
-    border-right: 1px solid var(--border) !important;
-}
-
-.card-0-2-43 {
-    background: var(--dark-lighter) !important;
-    border: none !important;
-    border-radius: 0 !important;
-}
-
-.card-d0-0-2-50 {
-    background: var(--dark-lighter) !important;
-}
-
-.divider-0-2-44,
-.divider-d1-0-2-51 {
-    background: var(--border) !important;
-    border-color: var(--border) !important;
-}
-
-.usernameContainer-0-2-46 {
-    color: var(--text-primary) !important;
-}
-
-.username-0-2-47,
-.username-d2-0-2-52 {
-    color: var(--text-primary) !important;
-    text-decoration: none !important;
-}
-
-.name-0-2-55 {
-    color: var(--text-secondary) !important;
-}
-
-.link-0-2-57 {
-    text-decoration: none !important;
-    display: block !important;
-    padding: 2px 8px !important;
-}
-
-.wrapper-0-2-56 {
-    transition: background 0.15s ease !important;
-    border-radius: var(--radius) !important;
-    padding: 6px 8px !important;
-}
-
-.wrapper-0-2-56:hover {
-    background: var(--dark-hover) !important;
-}
-
-.wrapper-0-2-56:hover .name-0-2-55 {
-    color: var(--text-primary) !important;
-}
-
-.linkEntry-0-2-54 {
-    color: var(--text-secondary) !important;
-    transition: color 0.15s ease !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-}
-
-.count-0-2-59 {
-    background: rgba(88, 101, 242, 0.2) !important;
+[class*="vTabLabel-"]:hover       { background: var(--dark-hover) !important; }
+[class*="vTabUnselected-"]:not(:hover) { box-shadow: none !important; }
+[class*="count-"] {
+    background: rgba(88,101,242,.15) !important;
+    border-color: rgba(88,101,242,.3) !important;
     color: var(--primary) !important;
     border-radius: 10px !important;
     padding: 1px 6px !important;
     font-size: 11px !important;
 }
 
-.upgradeNowButton-0-2-45 {
-    background: var(--primary) !important;
-    color: #fff !important;
+/* Profile body/about */
+[class*="header-"]  { color: var(--text-primary) !important; }
+[class*="body-"]    { color: var(--text-secondary) !important; background: var(--dark-lighter) !important; }
+[class*="label-"]   { color: var(--text-secondary) !important; }
+[class*="value-"]   { color: var(--text-primary) !important; }
+
+/* Avatar items */
+[class*="avatarImageCard-"],
+[class*="assetContainerCard-"] {
+    background: var(--dark-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+}
+[class*="imageWrapper-"] {
+    border-color: var(--border) !important;
     border-radius: var(--radius) !important;
-    font-weight: 600 !important;
-    transition: background 0.15s ease !important;
-    text-align: center !important;
-    padding: 8px 12px !important;
-    margin: 8px !important;
+    background: var(--dark-card) !important;
 }
+[class*="itemLabel-"]  { color: var(--text-secondary) !important; }
 
-/* Profile tab underline - override the brown --primary-color */
-.vTabLabel-0-2-225 {
+/* Friends on profile */
+[class*="avatarWrapper-"] {
+    background-color: var(--dark-card) !important;
+    box-shadow: none !important;
+    border: 2px solid var(--border) !important;
+    transition: border-color .15s ease !important;
+}
+[class*="avatarWrapper-"]:hover {
+    box-shadow: none !important;
+    border-color: var(--primary) !important;
+}
+[class*="playerName-"] { color: var(--text-secondary) !important; }
+[class*="sideRow-"]    { background: var(--dark-lighter) !important; }
+
+/* Groups */
+[class*="groupCard-"] {
     background-color: var(--dark-lighter) !important;
-    color: var(--text-primary) !important;
-    box-shadow: inset 0 -3px 0 0 var(--primary) !important;
+    border: 1px solid var(--border) !important;
 }
-
-/* Stat values on profile - override brown --primary-color */
-.statText-0-2-221,
-.statTextContainer-0-2-220,
-.statValue-0-2-219 a {
-    color: var(--primary) !important;
+[class*="groupName-"]    { color: var(--text-primary) !important; border-bottom-color: var(--border) !important; }
+[class*="description-"]  { color: var(--text-secondary) !important; border-top-color: var(--border) !important; }
+[class*="buttonWrapper-"] {
+    background: var(--primary) !important;
+    border-radius: var(--radius) !important;
 }
+[class*="buttonWrapper-"]:hover { background: var(--primary-dark) !important; box-shadow: none !important; }
+[class*="button-"] { color: var(--primary) !important; }
+[class*="button-"]:hover { color: var(--primary-dark) !important; }
 
-/* See All link on profile */
-.button-0-2-270 {
-    color: var(--primary) !important;
-}
-
-/* Join Game button */
-.button-0-2-322 {
+/* Join Game */
+[class*="button-"][class*="join"],
+[class*="joinButton-"] {
     background: var(--success) !important;
     border-color: var(--success) !important;
     border-radius: var(--radius) !important;
     color: #fff !important;
 }
 
-/* Snappy animations */
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+[class*="container-"][class*="sidebar"],
+[class*="sidebarContainer-"] {
+    background: var(--dark-lighter) !important;
+    border-right: 1px solid var(--border) !important;
+}
+[class*="divider-"]         { background: var(--border) !important; border-color: var(--border) !important; }
+[class*="usernameContainer-"] { color: var(--text-primary) !important; }
+[class*="name-"]            { color: var(--text-secondary) !important; }
+[class*="link-"]            { text-decoration: none !important; display: block !important; padding: 2px 8px !important; }
+[class*="wrapper-"] {
+    transition: background .15s ease !important;
+    border-radius: var(--radius) !important;
+}
+[class*="wrapper-"]:hover   { background: var(--dark-hover) !important; }
+[class*="upgradeNowButton-"] {
+    background: var(--primary) !important;
+    color: #fff !important;
+    border-radius: var(--radius) !important;
+    font-weight: 600 !important;
+    transition: background .15s ease !important;
+    text-align: center !important;
+    padding: 8px 12px !important;
+    margin: 8px !important;
+}
+
+/* ── Chat ────────────────────────────────────────────────────────────────── */
+[class*="chatMenu"] {
+    background: var(--dark-lighter) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+}
+[class*="chatMenuHeader"] {
+    background: var(--dark-card) !important;
+    border-bottom: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+}
+[class*="chatLabel"] { color: var(--text-primary) !important; font-weight: 600 !important; }
+
+/* ── Dropdown ────────────────────────────────────────────────────────────── */
+[class*="dropdownNew-"],
+.dropdown-menu {
+    background: var(--dark-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-lg) !important;
+}
+.dropdown-item,
+[class*="dropdownItem"] {
+    color: var(--text-secondary) !important;
+    transition: background .15s ease !important;
+}
+.dropdown-item:hover,
+[class*="dropdownItem"]:hover {
+    background: var(--dark-hover) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ── Animations: keep them snappy ────────────────────────────────────────── */
 * {
     animation-duration: 0.15s !important;
     animation-timing-function: ease !important;
