@@ -1,133 +1,151 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.2)
+//  pk-bulktrade.js  —  Pekora+ Bulk Trade Module  (v1.3)
 //  Exposes: window.PekoraPlus.BulkTrade
 //  Requires: pk-core.js, pk-toast.js already loaded
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
     'use strict';
 
-    // ── Namespace guard ────────────────────────────────────────────────────
-    const NS  = (window.PekoraPlus = window.PekoraPlus || {});
+    const NS = (window.PekoraPlus = window.PekoraPlus || {});
     const { El, Span, Fmt, GmFetch, Toast } = NS;
-    const Cfg = NS.Cfg;
 
-    // ── Internal state ─────────────────────────────────────────────────────
     let BT_Running    = false;
     let BT_Abort      = false;
     let CancelRunning = false;
     let CancelAbort   = false;
-    let BT_Inventory  = null;   // [{userAssetId, itemId, name, value, rap}]
-    let BT_OwnerCache = {};     // itemId → [{userId, username, userAssetIds, bestPrice}]
-    let KmapCache     = null;   // local kmap cache for this module
+    let BT_OwnerCache = {};
 
-    // ── Helpers ────────────────────────────────────────────────────────────
     const Sleep = Ms => new Promise(R => setTimeout(R, Ms));
 
-    function LogLine(BoxEl, Text, Color) {
-        const D = document.createElement('div');
+    // ── Logging ────────────────────────────────────────────────────────────
+    function LogLine(Box, Text, Color) {
+        const D  = document.createElement('div');
         D.style.cssText = `color:${Color || '#8b949e'};font-size:11px;line-height:1.6;`;
         const N  = new Date();
         const TS = `${String(N.getHours()).padStart(2,'0')}:${String(N.getMinutes()).padStart(2,'0')}:${String(N.getSeconds()).padStart(2,'0')}`;
         D.textContent = `[${TS}] ${Text}`;
-        BoxEl.appendChild(D);
-        BoxEl.scrollTop = BoxEl.scrollHeight;
+        Box.appendChild(D);
+        Box.scrollTop = Box.scrollHeight;
     }
 
     function SetBtnState(Btn, State) {
-        const States = {
+        const M = {
             idle:    { text: Btn.dataset.idleLabel || 'Send All Trades', bg: '#238636' },
-            running: { text: 'Running',  bg: '#444'    },
-            done:    { text: 'Done',     bg: '#1a3d26' },
-            error:   { text: 'Error',    bg: '#7a1a1a' },
+            running: { text: 'Running...', bg: '#444'    },
+            done:    { text: 'Done',       bg: '#1a3d26' },
+            error:   { text: 'Error',      bg: '#7a1a1a' },
         };
-        const S = States[State] || States.idle;
-        Btn.textContent = S.text;
+        const S = M[State] || M.idle;
+        Btn.textContent   = S.text;
         Btn.style.background = S.bg;
-        Btn.disabled = (State === 'running');
+        Btn.disabled      = (State === 'running');
     }
 
-    // ── SVG icon helper ────────────────────────────────────────────────────
-    function SvgIcon(Paths, Size) {
-        const Svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        Svg.setAttribute('width',  Size || '14');
-        Svg.setAttribute('height', Size || '14');
-        Svg.setAttribute('viewBox', '0 0 24 24');
-        Svg.setAttribute('fill', 'none');
-        Svg.setAttribute('stroke', 'currentColor');
-        Svg.setAttribute('stroke-width', '2');
-        Svg.setAttribute('stroke-linecap', 'round');
-        Svg.setAttribute('stroke-linejoin', 'round');
-        Svg.style.cssText = 'flex-shrink:0;vertical-align:middle;';
+    // ── SVG helper — accepts string or string[] for multi-path icons ───────
+    function Svg(Paths, Size) {
+        const S = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        S.setAttribute('width',  Size || '14');
+        S.setAttribute('height', Size || '14');
+        S.setAttribute('viewBox', '0 0 24 24');
+        S.setAttribute('fill', 'none');
+        S.setAttribute('stroke', 'currentColor');
+        S.setAttribute('stroke-width', '2');
+        S.setAttribute('stroke-linecap', 'round');
+        S.setAttribute('stroke-linejoin', 'round');
+        S.style.cssText = 'flex-shrink:0;vertical-align:middle;';
         (Array.isArray(Paths) ? Paths : [Paths]).forEach(D => {
             const P = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             P.setAttribute('d', D);
-            Svg.appendChild(P);
+            S.appendChild(P);
         });
-        return Svg;
+        return S;
     }
 
-    const SVG_BOLT   = 'M13 2L3 14h9l-1 8 10-12h-9l1-8z';
-    const SVG_X      = ['M18 6L6 18', 'M6 6l12 12'];
-    const SVG_SEARCH = ['M21 21l-4.35-4.35', 'M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'];
+    const I_BOLT   = 'M13 2L3 14h9l-1 8 10-12h-9l1-8z';
+    const I_X      = ['M18 6L6 18','M6 6l12 12'];
+    const I_SEARCH = ['M21 21l-4.35-4.35','M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'];
+    const I_CHECK  = 'M20 6L9 17l-5-5';
 
-    // ── Koromons items API ─────────────────────────────────────────────────
-    // Always uses GmFetch to hit koromons.xyz/api/items — the authoritative source.
-    async function GetKmap() {
-        if (KmapCache)  return KmapCache;
-        if (NS.KCache)  { KmapCache = NS.KCache; return KmapCache; }
+    // ── Koromons item map ──────────────────────────────────────────────────
+    // Resolution order:
+    //   1. NS.KCache  — already loaded by main script (fastest)
+    //   2. GmFetch    — GM_xmlhttpRequest wrapper from pk-core (crosses origin)
+    // The result is stored on NS.KCache so both modules share one copy.
+    async function GetKmap(Log) {
+        if (NS.KCache && Object.keys(NS.KCache).length > 0) {
+            if (Log) Log('Using cached item map (' + Object.keys(NS.KCache).length + ' items)', '#555');
+            return NS.KCache;
+        }
+        if (Log) Log('Fetching item map from Koromons...');
         try {
             const Data = await GmFetch('https://www.koromons.xyz/api/items');
-            KmapCache  = {};
-            for (const Item of Data) KmapCache[String(Item.itemId)] = Item;
-            NS.KCache  = KmapCache; // share back to main script
+            if (!Array.isArray(Data) || !Data.length) throw new Error('Empty or invalid response from /api/items');
+            const Map = {};
+            for (const Item of Data) Map[String(Item.itemId)] = Item;
+            NS.KCache = Map;
+            if (Log) Log('Item map loaded (' + Data.length + ' items)', '#4db87a');
+            return Map;
         } catch (E) {
-            KmapCache = {};
+            if (Log) Log('Failed to load item map: ' + E.message, '#e74c3c');
+            return {};
         }
-        return KmapCache;
     }
 
-    // ── Inventory loader ───────────────────────────────────────────────────
-    // Paginates through ALL pages via nextPageCursor.
+    // ── Inventory — full paginated load ───────────────────────────────────
     async function LoadInventory(Log) {
-        Log('Fetching your inventory...');
+        Log('Getting user ID...');
         try {
-            const Me  = await fetch('/apisite/users/v1/users/authenticated', { credentials: 'include' }).then(R => R.json());
+            const Me = await fetch('/apisite/users/v1/users/authenticated', { credentials: 'include' }).then(R => R.json());
+            if (!Me.id) throw new Error('Not logged in');
             const Uid = Me.id;
-            if (!Uid) throw new Error('Not logged in');
 
             let Cursor   = null;
             let AllItems = [];
             let Page     = 0;
-            do {
-                const Url = `/apisite/inventory/v1/users/${Uid}/assets/collectibles?sortOrder=Desc&limit=100`
-                          + (Cursor ? `&cursor=${encodeURIComponent(Cursor)}` : '');
-                const Raw      = await fetch(Url, { credentials: 'include' }).then(R => R.json());
-                const PageData = Raw.data || [];
-                AllItems       = AllItems.concat(PageData);
-                Cursor         = Raw.nextPageCursor || null;
-                Page++;
-                if (Cursor) Log(`Page ${Page}: ${AllItems.length} items so far...`);
-            } while (Cursor && Page < 20); // safety cap: 20 pages = up to 2000 items
 
-            Log('Fetching values from Koromons...');
-            const Kmap = await GetKmap();
-            BT_Inventory = AllItems.map(I => ({
+            Log('Fetching inventory page 1...');
+            do {
+                // Build URL — always include cursor param, empty string on first page
+                // (some endpoints require the param to exist even if blank)
+                let Url = `/apisite/inventory/v1/users/${Uid}/assets/collectibles?sortOrder=Desc&limit=100&cursor=`;
+                if (Cursor) Url += encodeURIComponent(Cursor);
+
+                const Resp = await fetch(Url, { credentials: 'include' });
+                if (!Resp.ok) throw new Error('Inventory HTTP ' + Resp.status);
+                const Json = await Resp.json();
+
+                const PageItems = Json.data || [];
+                AllItems = AllItems.concat(PageItems);
+                Page++;
+
+                // nextPageCursor can be null, undefined, or "" — all mean done
+                const NextCursor = Json.nextPageCursor;
+                Cursor = (NextCursor && NextCursor !== '') ? NextCursor : null;
+
+                Log(`Page ${Page}: got ${PageItems.length} items (total ${AllItems.length})${Cursor ? ', fetching more...' : ', done.'}`);
+            } while (Cursor && Page < 20);
+
+            // Enrich with Koromons values
+            Log('Fetching Koromons values...');
+            const Kmap = await GetKmap(Log);
+
+            const Inventory = AllItems.map(I => ({
                 userAssetId: I.userAssetId,
                 itemId:      String(I.assetId),
                 name:        I.name,
                 value:       Kmap[String(I.assetId)]?.Value || 0,
                 rap:         Kmap[String(I.assetId)]?.RAP   || I.recentAveragePrice || 0,
             }));
-            Log('Loaded ' + BT_Inventory.length + ' tradable items', '#4db87a');
-            return BT_Inventory;
+
+            Log('Loaded ' + Inventory.length + ' tradable items', '#4db87a');
+            return Inventory;
         } catch (E) {
-            Log('Failed to load inventory: ' + E.message, '#e74c3c');
+            Log('Inventory load failed: ' + E.message, '#e74c3c');
             return [];
         }
     }
 
-    // ── Owner fetcher ──────────────────────────────────────────────────────
-    // Collects ALL userAssetIds per seller for multiItems mode.
+    // ── Reseller fetcher ───────────────────────────────────────────────────
     async function FetchOwners(ItemId, Log) {
         if (BT_OwnerCache[ItemId]) {
             Log('Using cached resellers (' + BT_OwnerCache[ItemId].length + ')', '#4db87a');
@@ -137,42 +155,34 @@
             Log('Fetching resellers for item ' + ItemId + '...');
             let Cursor = null, All = [];
             do {
-                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100'
-                          + (Cursor ? '&cursor=' + encodeURIComponent(Cursor) : '&cursor=');
+                const Url = '/apisite/economy/v1/assets/' + ItemId + '/resellers?limit=100&cursor='
+                          + (Cursor ? encodeURIComponent(Cursor) : '');
                 const R = await fetch(Url, { credentials: 'include' });
                 if (!R.ok) throw new Error('HTTP ' + R.status);
                 const J = await R.json();
                 All    = All.concat(J.data || []);
-                Cursor = J.nextPageCursor || null;
+                const Next = J.nextPageCursor;
+                Cursor = (Next && Next !== '') ? Next : null;
             } while (Cursor);
 
-            if (!All.length) {
-                Log('No resellers found — item may not be on sale.', '#f59e0b');
-                return [];
-            }
+            if (!All.length) { Log('No resellers found.', '#f59e0b'); return []; }
 
-            // Collect all userAssetIds per seller, track cheapest price
+            // Collect all userAssetIds per seller
             const ByUser = new Map();
-            for (const Entry of All) {
-                const Uid = String(Entry.seller?.id);
+            for (const E of All) {
+                const Uid = String(E.seller?.id);
                 if (!ByUser.has(Uid)) {
-                    ByUser.set(Uid, {
-                        userId:       Uid,
-                        username:     Entry.seller?.name || Uid,
-                        userAssetIds: [Entry.userAssetId],
-                        bestPrice:    Entry.price,
-                    });
+                    ByUser.set(Uid, { userId: Uid, username: E.seller?.name || Uid, userAssetIds: [E.userAssetId], bestPrice: E.price });
                 } else {
                     const Ex = ByUser.get(Uid);
-                    Ex.userAssetIds.push(Entry.userAssetId);
-                    if (Entry.price < Ex.bestPrice) Ex.bestPrice = Entry.price;
+                    Ex.userAssetIds.push(E.userAssetId);
+                    if (E.price < Ex.bestPrice) Ex.bestPrice = E.price;
                 }
             }
 
-            // Sort cheapest first
             const Owners = [...ByUser.values()].sort((A, B) => A.bestPrice - B.bestPrice);
             BT_OwnerCache[ItemId] = Owners;
-            Log('Found ' + Owners.length + ' resellers to trade with', '#4db87a');
+            Log('Found ' + Owners.length + ' resellers', '#4db87a');
             return Owners;
         } catch (E) {
             Log('Resellers fetch failed: ' + E.message, '#e74c3c');
@@ -180,7 +190,7 @@
         }
     }
 
-    // ── CSRF helper ────────────────────────────────────────────────────────
+    // ── CSRF ───────────────────────────────────────────────────────────────
     async function GetCsrf() {
         const M = document.cookie.match(/rbxcsrf4=([^;]+)/);
         if (M) return decodeURIComponent(M[1]);
@@ -192,501 +202,393 @@
     // ── Trade sender ───────────────────────────────────────────────────────
     async function SendTrade(MyUAIds, TheirUserId, TheirUAIds) {
         const Csrf = await GetCsrf();
-        const Body = { offers: [
-            { robux: null, userAssetIds: MyUAIds,    userId: null },
-            { robux: null, userAssetIds: TheirUAIds, userId: TheirUserId },
-        ]};
         const Resp = await fetch('/apisite/trades/v1/trades/send', {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json', 'x-csrf-token': Csrf },
-            body: JSON.stringify(Body),
+            body: JSON.stringify({ offers: [
+                { robux: null, userAssetIds: MyUAIds,    userId: null },
+                { robux: null, userAssetIds: TheirUAIds, userId: TheirUserId },
+            ]}),
         });
         if (!Resp.ok) {
             let Msg = 'HTTP ' + Resp.status;
             try { const J = await Resp.json(); Msg = J.errors?.[0]?.message || J.message || Msg; } catch {}
             throw new Error(Msg);
         }
-        return true;
     }
 
     // ── CSV export ─────────────────────────────────────────────────────────
     function ExportCsv(Rows) {
-        const Head = 'Timestamp,Mode,Target,UserID,Status,Detail\n';
-        const Body = Rows.map(R => [R.ts, R.mode, `"${R.target}"`, R.uid, R.status, `"${R.detail}"`].join(',')).join('\n');
-        const Blob = new Blob([Head + Body], { type: 'text/csv' });
-        const Url  = URL.createObjectURL(Blob);
+        const Csv  = 'Timestamp,Mode,Target,UserID,Status,Detail\n'
+                   + Rows.map(R => [R.ts, R.mode, `"${R.target}"`, R.uid, R.status, `"${R.detail}"`].join(',')).join('\n');
+        const Url  = URL.createObjectURL(new Blob([Csv], { type: 'text/csv' }));
         const A    = document.createElement('a');
-        A.href = Url; A.download = 'pekora-bulk-trades.csv'; A.click();
+        A.href     = Url; A.download = 'pekora-bulk-trades.csv'; A.click();
         setTimeout(() => URL.revokeObjectURL(Url), 2000);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  PANEL BUILDER
+    //  PANEL
     // ══════════════════════════════════════════════════════════════════════════
     function BuildBulkTradePanel() {
         const Existing = document.getElementById('pk-bulktrade-panel');
         if (Existing) { Existing.remove(); return; }
 
-        // ── Overlay ──────────────────────────────────────────────────────────
         const Overlay = El('div', {
             position: 'fixed', inset: '0', background: 'rgba(0,0,0,.65)',
             zIndex: '1000000', display: 'flex', alignItems: 'center', justifyContent: 'center',
         });
         Overlay.id = 'pk-bulktrade-panel';
-        // NO click-outside-to-close — must use X button
+        // No click-outside close — use X button only
 
         const Panel = El('div', {
             background: '#161b22', border: '1px solid rgba(255,255,255,.12)',
             borderRadius: '10px', width: '700px', maxWidth: '96vw', maxHeight: '90vh',
             display: 'flex', flexDirection: 'column',
-            boxShadow: '0 8px 40px rgba(0,0,0,.8)',
-            overflow: 'hidden',
+            boxShadow: '0 8px 40px rgba(0,0,0,.8)', overflow: 'hidden',
         });
 
-        // ── Header ───────────────────────────────────────────────────────────
-        const Header = El('div', {
+        // ── Header ────────────────────────────────────────────────────────
+        const Hdr = El('div', {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.1)',
             background: '#0d1117', flexShrink: '0',
         });
-        const HTW = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
-        HTW.appendChild(Span('Pekora+',    { fontSize: '13px', fontWeight: '700', color: 'var(--primary-color,#8A5149)' }));
-        HTW.appendChild(Span('Bulk Trade', { fontSize: '16px', fontWeight: '700', color: '#e6edf3' }));
-
-        const CloseBtn = El('button', {
-            background: 'none', border: '1px solid rgba(255,255,255,.12)',
-            borderRadius: '5px', color: '#8b949e', cursor: 'pointer',
+        const HdrL = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
+        HdrL.appendChild(Span('Pekora+',    { fontSize: '13px', fontWeight: '700', color: 'var(--primary-color,#8A5149)' }));
+        HdrL.appendChild(Span('Bulk Trade', { fontSize: '16px', fontWeight: '700', color: '#e6edf3' }));
+        const XBtn = El('button', {
+            background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px',
+            color: '#8b949e', cursor: 'pointer', width: '28px', height: '28px', padding: '0',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: '28px', height: '28px', padding: '0',
         });
-        CloseBtn.title = 'Close';
-        CloseBtn.appendChild(SvgIcon(SVG_X, '14'));
-        CloseBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); });
-        Header.appendChild(HTW); Header.appendChild(CloseBtn);
+        XBtn.appendChild(Svg(I_X, '14'));
+        XBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; Overlay.remove(); });
+        Hdr.appendChild(HdrL); Hdr.appendChild(XBtn);
 
-        // ── Tab bar ──────────────────────────────────────────────────────────
+        // ── Tabs ──────────────────────────────────────────────────────────
         const TabBar  = El('div', { display: 'flex', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117', flexShrink: '0' });
-        const TabDefs = [
-            { label: 'Blast',         icon: SVG_BOLT },
-            { label: 'Cancel Trades', icon: SVG_X    },
-        ];
+        const TabDefs = [{ label: 'Blast', icon: I_BOLT }, { label: 'Cancel Trades', icon: I_X }];
         const Pages   = [];
-
-        const TabBtns = TabDefs.map((Def, I) => {
+        const TabBtns = TabDefs.map((D, I) => {
             const B = El('button', {
                 padding: '10px 20px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                border: 'none', background: 'none',
-                display: 'flex', alignItems: 'center', gap: '7px',
-                color:        I === 0 ? '#e6edf3' : '#8b949e',
+                border: 'none', background: 'none', display: 'flex', alignItems: 'center', gap: '7px',
+                color: I === 0 ? '#e6edf3' : '#8b949e',
                 borderBottom: I === 0 ? '2px solid #238636' : '2px solid transparent',
-                transition: 'color .15s',
             });
-            B.appendChild(SvgIcon(Def.icon, '13'));
-            B.appendChild(document.createTextNode(Def.label));
-            TabBar.appendChild(B);
-            return B;
+            B.appendChild(Svg(D.icon, '13'));
+            B.appendChild(document.createTextNode(D.label));
+            TabBar.appendChild(B); return B;
         });
 
-        // ── Scrollable content area ───────────────────────────────────────────
         const Content = El('div', { flex: '1', overflowY: 'auto', padding: '18px' });
 
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        //  PAGE 0 — BLAST
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const BlastPage = El('div', {});
-
-        const SecLabel = (Text, MTop) => {
-            const D = El('div', {
-                fontSize: '11px', fontWeight: '700', color: '#555',
-                textTransform: 'uppercase', letterSpacing: '.8px',
-                marginBottom: '8px', marginTop: MTop || '0',
-            });
-            D.textContent = Text; return D;
+        // ── Section label helper ──────────────────────────────────────────
+        const SecLbl = (T, Mt) => {
+            const D = El('div', { fontSize: '11px', fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: '8px', marginTop: Mt || '0' });
+            D.textContent = T; return D;
         };
 
-        // ── 1. Offer items ───────────────────────────────────────────────────
-        BlastPage.appendChild(SecLabel('1. Your Offer Items'));
+        // ══════════════════════════════════════════════════════════════════
+        //  PAGE 0 — BLAST
+        // ══════════════════════════════════════════════════════════════════
+        const BlastPage = El('div', {});
+
+        // ── 1. Offer items ────────────────────────────────────────────────
+        BlastPage.appendChild(SecLbl('1. Your Offer Items'));
 
         const InvRow     = El('div', { display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'center' });
-        const LoadInvBtn = El('button', {
-            padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff',
-            background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer',
-        });
+        const LoadInvBtn = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer' });
         LoadInvBtn.textContent = 'Load My Inventory';
-        const InvCountSpan = Span('', { fontSize: '12px', color: '#8b949e' });
-        InvRow.appendChild(LoadInvBtn); InvRow.appendChild(InvCountSpan);
+        const InvStatus = Span('', { fontSize: '12px', color: '#8b949e' });
+        InvRow.appendChild(LoadInvBtn); InvRow.appendChild(InvStatus);
         BlastPage.appendChild(InvRow);
 
-        const OfferGrid = El('div', {
-            display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '48px',
-            background: 'rgba(255,255,255,.03)', borderRadius: '5px', padding: '8px',
-            border: '1px solid rgba(255,255,255,.07)',
-        });
-        const OfferPlaceholder = Span('Click "Load My Inventory" then select up to 4 items to offer', { fontSize: '11px', color: '#555' });
-        OfferGrid.appendChild(OfferPlaceholder);
+        const OfferGrid = El('div', { display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '48px', background: 'rgba(255,255,255,.03)', borderRadius: '5px', padding: '8px', border: '1px solid rgba(255,255,255,.07)' });
+        const OfferPH   = Span('Click "Load My Inventory" then select up to 4 items to offer', { fontSize: '11px', color: '#555' });
+        OfferGrid.appendChild(OfferPH);
         BlastPage.appendChild(OfferGrid);
 
-        let InventoryItems   = [];
-        let SelectedOfferIds = new Set();
+        let InvItems  = [];
+        let SelOffer  = new Set();
 
         function RefreshOfferGrid() {
             OfferGrid.innerHTML = '';
-            if (!SelectedOfferIds.size) { OfferGrid.appendChild(OfferPlaceholder); return; }
-            for (const UAId of SelectedOfferIds) {
-                const Item = InventoryItems.find(I => String(I.userAssetId) === String(UAId));
+            if (!SelOffer.size) { OfferGrid.appendChild(OfferPH); return; }
+            for (const UAId of SelOffer) {
+                const Item = InvItems.find(I => String(I.userAssetId) === String(UAId));
                 if (!Item) continue;
-                const Chip = El('div', {
-                    display: 'flex', alignItems: 'center', gap: '5px',
-                    background: '#21262d', border: '1px solid #30363d',
-                    borderRadius: '4px', padding: '3px 8px', fontSize: '11px',
-                    color: '#e6edf3', cursor: 'pointer', userSelect: 'none',
-                });
+                const Chip = El('div', { display: 'flex', alignItems: 'center', gap: '5px', background: '#21262d', border: '1px solid #30363d', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', color: '#e6edf3', cursor: 'pointer', userSelect: 'none' });
                 Chip.title = 'Click to remove';
-                const NSpan = El('span', {});
-                NSpan.textContent = Item.name;
-                NSpan.style.cssText = 'max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                const VSpan = Span(' · ' + (Item.value > 0 ? Fmt(Item.value) : 'RAP ' + Fmt(Item.rap)), { color: '#4db87a', fontWeight: '700' });
-                const XSpan = SvgIcon(SVG_X, '10');
-                XSpan.style.marginLeft = '2px';
-                XSpan.style.color = '#8b949e';
-                Chip.appendChild(NSpan); Chip.appendChild(VSpan); Chip.appendChild(XSpan);
-                Chip.addEventListener('click', () => { SelectedOfferIds.delete(String(UAId)); RefreshOfferGrid(); UpdateRatioBar(); });
+                const NS2 = El('span', {}); NS2.textContent = Item.name;
+                NS2.style.cssText = 'max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                Chip.appendChild(NS2);
+                Chip.appendChild(Span(' · ' + (Item.value > 0 ? Fmt(Item.value) : 'RAP ' + Fmt(Item.rap)), { color: '#4db87a', fontWeight: '700' }));
+                const XI = Svg(I_X, '10'); XI.style.cssText = 'margin-left:3px;color:#8b949e;';
+                Chip.appendChild(XI);
+                Chip.addEventListener('click', () => { SelOffer.delete(String(UAId)); RefreshOfferGrid(); CalcRatio(); });
                 OfferGrid.appendChild(Chip);
             }
         }
 
-        // ── Inventory picker sub-modal ────────────────────────────────────────
-        function OpenInventoryPicker() {
-            const Picker = El('div', {
-                position: 'fixed', inset: '0', background: 'rgba(0,0,0,.75)',
-                zIndex: '1000001', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            });
-            const Box = El('div', {
-                background: '#161b22', border: '1px solid rgba(255,255,255,.15)',
-                borderRadius: '8px', width: '520px', maxWidth: '95vw', maxHeight: '80vh',
-                display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                boxShadow: '0 8px 40px rgba(0,0,0,.9)',
-            });
+        function OpenPicker() {
+            const Picker = El('div', { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.75)', zIndex: '1000001', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+            const Box    = El('div', { background: '#161b22', border: '1px solid rgba(255,255,255,.15)', borderRadius: '8px', width: '520px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,.9)' });
 
-            const PH = El('div', {
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117',
-            });
-            PH.appendChild(Span('Select Offer Items (max 4)', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' }));
-            const PC = El('button', {
-                background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '4px',
-                color: '#8b949e', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: '26px', height: '26px', padding: '0',
-            });
-            PC.appendChild(SvgIcon(SVG_X, '13'));
-            PC.addEventListener('click', () => Picker.remove());
-            PH.appendChild(PC); Box.appendChild(PH);
+            const PH2 = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,.1)', background: '#0d1117' });
+            PH2.appendChild(Span('Select Offer Items (max 4)', { fontSize: '14px', fontWeight: '700', color: '#e6edf3' }));
+            const PC = El('button', { background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: '4px', color: '#8b949e', cursor: 'pointer', width: '26px', height: '26px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+            PC.appendChild(Svg(I_X, '13')); PC.addEventListener('click', () => Picker.remove());
+            PH2.appendChild(PC); Box.appendChild(PH2);
 
-            const PSearch = El('input', {
-                padding: '8px 12px', background: '#21262d', color: '#e6edf3',
-                border: 'none', borderBottom: '1px solid rgba(255,255,255,.1)',
-                fontSize: '12px', outline: 'none', width: '100%', boxSizing: 'border-box',
-            });
-            PSearch.placeholder = 'Search items...'; Box.appendChild(PSearch);
+            const PS = El('input', { padding: '8px 12px', background: '#21262d', color: '#e6edf3', border: 'none', borderBottom: '1px solid rgba(255,255,255,.1)', fontSize: '12px', outline: 'none', width: '100%', boxSizing: 'border-box' });
+            PS.placeholder = 'Search items...'; Box.appendChild(PS);
 
-            const PList = El('div', { flex: '1', overflowY: 'auto', padding: '8px' }); Box.appendChild(PList);
+            const PL = El('div', { flex: '1', overflowY: 'auto', padding: '8px' }); Box.appendChild(PL);
 
-            const PFoot   = El('div', { padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px' });
-            const ConfBtn = El('button', { padding: '6px 18px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#238636', border: '1px solid #2ea043', borderRadius: '5px', cursor: 'pointer' });
-            ConfBtn.textContent = 'Confirm';
-            ConfBtn.addEventListener('click', () => { RefreshOfferGrid(); UpdateRatioBar(); Picker.remove(); });
-            const CanBtn = El('button', { padding: '6px 14px', fontSize: '13px', color: '#8b949e', background: 'none', border: '1px solid rgba(255,255,255,.15)', borderRadius: '5px', cursor: 'pointer' });
-            CanBtn.textContent = 'Cancel'; CanBtn.addEventListener('click', () => Picker.remove());
-            PFoot.appendChild(CanBtn); PFoot.appendChild(ConfBtn); Box.appendChild(PFoot);
+            const PF = El('div', { padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px' });
+            const OkB = El('button', { padding: '6px 18px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#238636', border: '1px solid #2ea043', borderRadius: '5px', cursor: 'pointer' });
+            OkB.textContent = 'Confirm'; OkB.addEventListener('click', () => { RefreshOfferGrid(); CalcRatio(); Picker.remove(); });
+            const CaB = El('button', { padding: '6px 14px', fontSize: '13px', color: '#8b949e', background: 'none', border: '1px solid rgba(255,255,255,.15)', borderRadius: '5px', cursor: 'pointer' });
+            CaB.textContent = 'Cancel'; CaB.addEventListener('click', () => Picker.remove());
+            PF.appendChild(CaB); PF.appendChild(OkB); Box.appendChild(PF);
 
-            function RenderPicker(Filter) {
-                PList.innerHTML = '';
-                const Filtered = InventoryItems.filter(I => !Filter || I.name.toLowerCase().includes(Filter.toLowerCase()));
-                if (!Filtered.length) { PList.appendChild(Span('No items found.', { fontSize: '12px', color: '#555', padding: '12px', display: 'block' })); return; }
-                Filtered.forEach(I => {
-                    const Sel = SelectedOfferIds.has(String(I.userAssetId));
-                    const Row = El('div', {
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '6px 8px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none',
-                        background: Sel ? 'rgba(35,134,54,.2)' : 'transparent',
-                        border: '1px solid ' + (Sel ? '#238636' : 'transparent'),
-                        marginBottom: '3px', transition: 'background .1s',
-                    });
-                    const Left = El('div', { display: 'flex', flexDirection: 'column', gap: '1px' });
-                    Left.appendChild(Span(I.name, { fontSize: '12px', color: '#e6edf3', fontWeight: '500' }));
-                    Left.appendChild(Span(I.value > 0 ? 'Val: ' + Fmt(I.value) + '  RAP: ' + Fmt(I.rap) : 'RAP: ' + Fmt(I.rap), { fontSize: '10px', color: '#8b949e' }));
-                    const ChkWrap = El('div', { width: '16px', height: '16px', flexShrink: '0', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-                    if (Sel) ChkWrap.appendChild(SvgIcon('M20 6L9 17l-5-5', '14'));
-                    ChkWrap.style.color = '#2ea043';
-                    Row.appendChild(Left); Row.appendChild(ChkWrap);
+            function RenderPicker(F) {
+                PL.innerHTML = '';
+                const Fil = InvItems.filter(I => !F || I.name.toLowerCase().includes(F.toLowerCase()));
+                if (!Fil.length) { PL.appendChild(Span('No items found.', { fontSize: '12px', color: '#555', padding: '12px', display: 'block' })); return; }
+                Fil.forEach(I => {
+                    const Sel = SelOffer.has(String(I.userAssetId));
+                    const Row = El('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(35,134,54,.2)' : 'transparent', border: '1px solid ' + (Sel ? '#238636' : 'transparent'), marginBottom: '3px' });
+                    const Lft = El('div', { display: 'flex', flexDirection: 'column', gap: '1px' });
+                    Lft.appendChild(Span(I.name, { fontSize: '12px', color: '#e6edf3', fontWeight: '500' }));
+                    Lft.appendChild(Span(I.value > 0 ? 'Val: ' + Fmt(I.value) + '  RAP: ' + Fmt(I.rap) : 'RAP: ' + Fmt(I.rap), { fontSize: '10px', color: '#8b949e' }));
+                    const CkW = El('div', { width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2ea043' });
+                    if (Sel) CkW.appendChild(Svg(I_CHECK, '14'));
+                    Row.appendChild(Lft); Row.appendChild(CkW);
                     Row.addEventListener('click', () => {
-                        const Key = String(I.userAssetId);
-                        if (SelectedOfferIds.has(Key)) {
-                            SelectedOfferIds.delete(Key);
-                            Row.style.background = 'transparent'; Row.style.border = '1px solid transparent';
-                            ChkWrap.innerHTML = '';
+                        const K = String(I.userAssetId);
+                        if (SelOffer.has(K)) {
+                            SelOffer.delete(K); Row.style.background = 'transparent'; Row.style.border = '1px solid transparent'; CkW.innerHTML = '';
                         } else {
-                            if (SelectedOfferIds.size >= 4) { Toast('Max 4 offer items', 'warn'); return; }
-                            SelectedOfferIds.add(Key);
-                            Row.style.background = 'rgba(35,134,54,.2)'; Row.style.border = '1px solid #238636';
-                            ChkWrap.innerHTML = '';
-                            const Ck = SvgIcon('M20 6L9 17l-5-5', '14');
-                            Ck.style.color = '#2ea043';
-                            ChkWrap.appendChild(Ck);
+                            if (SelOffer.size >= 4) { Toast('Max 4 offer items', 'warn'); return; }
+                            SelOffer.add(K); Row.style.background = 'rgba(35,134,54,.2)'; Row.style.border = '1px solid #238636';
+                            CkW.innerHTML = ''; CkW.appendChild(Svg(I_CHECK, '14'));
                         }
                     });
-                    PList.appendChild(Row);
+                    PL.appendChild(Row);
                 });
             }
-            PSearch.addEventListener('input', () => RenderPicker(PSearch.value));
+            PS.addEventListener('input', () => RenderPicker(PS.value));
             RenderPicker('');
-            Picker.appendChild(Box);
-            document.body.appendChild(Picker);
+            Picker.appendChild(Box); document.body.appendChild(Picker);
         }
 
+        // Inline log for inventory loading (uses InvStatus span)
         LoadInvBtn.addEventListener('click', async () => {
-            LoadInvBtn.textContent = 'Loading...'; LoadInvBtn.disabled = true;
-            BT_Inventory = null; // force fresh paginated load every time
-            const TmpLog = (T, C) => { InvCountSpan.textContent = T; InvCountSpan.style.color = C || '#8b949e'; };
-            InventoryItems = await LoadInventory(TmpLog);
-            BT_Inventory   = InventoryItems;
-            InvCountSpan.textContent = InventoryItems.length + ' items';
-            InvCountSpan.style.color = '#8b949e';
-            LoadInvBtn.textContent   = 'Load My Inventory';
-            LoadInvBtn.disabled      = false;
-            if (InventoryItems.length) OpenInventoryPicker();
+            LoadInvBtn.disabled = true; LoadInvBtn.textContent = 'Loading...';
+            InvStatus.textContent = ''; InvStatus.style.color = '#8b949e';
+
+            // Dedicated small log box that shows pagination progress
+            const TmpLog = (T, C) => { InvStatus.textContent = T; if (C) InvStatus.style.color = C; };
+
+            InvItems = await LoadInventory(TmpLog);
+
+            InvStatus.textContent = InvItems.length + ' items loaded';
+            InvStatus.style.color = InvItems.length > 0 ? '#4db87a' : '#e74c3c';
+            LoadInvBtn.textContent = 'Reload Inventory';
+            LoadInvBtn.disabled    = false;
+            if (InvItems.length) OpenPicker();
         });
 
-        // ── 2. Target item ────────────────────────────────────────────────────
-        BlastPage.appendChild(SecLabel('2. Target Item', '14px'));
+        // ── 2. Target item ────────────────────────────────────────────────
+        BlastPage.appendChild(SecLbl('2. Target Item', '14px'));
 
-        const TgtRow   = El('div', { display: 'flex', gap: '8px', marginBottom: '6px' });
-        const TgtInput = El('input', {
-            flex: '1', padding: '6px 12px', background: '#21262d', color: '#e6edf3',
-            border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '13px', outline: 'none',
-        });
-        TgtInput.placeholder = 'Item name or ID...';
-
-        const FindBtn = El('button', {
-            padding: '6px 14px', fontSize: '12px', fontWeight: '700', color: '#fff',
-            background: '#21262d', border: '1px solid rgba(255,255,255,.15)',
-            borderRadius: '5px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: '6px',
-        });
-        FindBtn.appendChild(SvgIcon(SVG_SEARCH, '13'));
-        FindBtn.appendChild(document.createTextNode('Find'));
-        TgtRow.appendChild(TgtInput); TgtRow.appendChild(FindBtn);
+        const TgtRow = El('div', { display: 'flex', gap: '8px', marginBottom: '6px' });
+        const TgtInp = El('input', { flex: '1', padding: '6px 12px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '13px', outline: 'none' });
+        TgtInp.placeholder = 'Item name or ID...';
+        const FindBtn = El('button', { padding: '6px 14px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' });
+        FindBtn.appendChild(Svg(I_SEARCH, '13')); FindBtn.appendChild(document.createTextNode('Find'));
+        TgtRow.appendChild(TgtInp); TgtRow.appendChild(FindBtn);
         BlastPage.appendChild(TgtRow);
 
         const TgtInfo = El('div', { minHeight: '36px', marginBottom: '10px' });
         BlastPage.appendChild(TgtInfo);
 
-        let TargetItemId   = null;
-        let TargetItemName = '';
+        let TgtId   = null;
+        let TgtName = '';
 
-        // Search uses GetKmap() which calls koromons.xyz/api/items directly
-        async function SearchTarget() {
-            const Q = TgtInput.value.trim();
-            if (!Q) return;
+        async function DoSearch() {
+            const Q = TgtInp.value.trim(); if (!Q) return;
             TgtInfo.innerHTML = '';
-            TgtInfo.appendChild(Span('Searching...', { fontSize: '12px', color: '#8b949e' }));
+            const Msg = Span('Loading item map...', { fontSize: '12px', color: '#8b949e' });
+            TgtInfo.appendChild(Msg);
+
             try {
+                // GetKmap fetches https://www.koromons.xyz/api/items via GmFetch
                 const Kmap = await GetKmap();
 
-                let ItemId = null;
+                if (!Object.keys(Kmap).length) throw new Error('Item map is empty — GmFetch may have failed. Check @connect in userscript header includes koromons.xyz');
 
+                Msg.textContent = 'Searching...';
+
+                let ItemId = null;
                 if (/^\d+$/.test(Q)) {
-                    // Numeric ID — look up directly
+                    // Direct ID lookup
                     ItemId = Q;
-                    if (!Kmap[ItemId]) throw new Error('Item ID ' + ItemId + ' not found in Koromons database');
-                    TargetItemName = Kmap[ItemId]?.Name || Kmap[ItemId]?.name || 'Item ' + ItemId;
+                    if (!Kmap[ItemId]) throw new Error('ID ' + ItemId + ' not in Koromons database');
+                    TgtName = Kmap[ItemId].Name || Kmap[ItemId].name || ('Item ' + ItemId);
                 } else {
-                    // Name search — scan all entries with priority scoring
+                    // Name search with priority: exact acronym > exact name > starts-with > contains
                     const QL = Q.toLowerCase();
-                    let BestMatch = null, BestScore = -1;
+                    let Best = null, BestScore = -1;
                     for (const [Id, Item] of Object.entries(Kmap)) {
                         const Name    = (Item.Name    || Item.name    || '').toLowerCase();
                         const Acronym = (Item.Acronym || Item.acronym || '').toLowerCase();
-                        if (Acronym === QL)              { BestMatch = [Id, Item]; break; }      // exact acronym = top priority
-                        if (Name === QL && BestScore < 2) { BestMatch = [Id, Item]; BestScore = 2; } // exact name
-                        else if (Name.startsWith(QL) && BestScore < 1) { BestMatch = [Id, Item]; BestScore = 1; } // starts-with
-                        else if (Name.includes(QL)   && BestScore < 0) { BestMatch = [Id, Item]; BestScore = 0; } // contains
+                        if (Acronym === QL)                        { Best = [Id, Item]; break; }
+                        if (Name === QL       && BestScore < 3)    { Best = [Id, Item]; BestScore = 3; }
+                        else if (Name.startsWith(QL) && BestScore < 2) { Best = [Id, Item]; BestScore = 2; }
+                        else if (Name.includes(QL)   && BestScore < 1) { Best = [Id, Item]; BestScore = 1; }
                     }
-                    if (!BestMatch) throw new Error('No item found for "' + Q + '" — try the item ID');
-                    ItemId         = BestMatch[0];
-                    TargetItemName = BestMatch[1].Name || BestMatch[1].name || Q;
+                    if (!Best) throw new Error('No item found for "' + Q + '" — try the item ID');
+                    ItemId  = Best[0];
+                    TgtName = Best[1].Name || Best[1].name || Q;
                 }
 
-                TargetItemId = ItemId;
-                const KItem   = Kmap[ItemId] || {};
-                const KVal    = KItem.Value  || KItem.value  || 0;
-                const KRAP    = KItem.RAP    || KItem.rap    || 0;
-                const KDemand = KItem.Demand || KItem.demand || '';
+                TgtId = ItemId;
+                const K  = Kmap[ItemId] || {};
+                const KV = K.Value  || K.value  || 0;
+                const KR = K.RAP    || K.rap    || 0;
+                const KD = K.Demand || K.demand || '';
 
                 TgtInfo.innerHTML = '';
-                const IR = El('div', {
-                    display: 'flex', alignItems: 'center', gap: '10px',
-                    background: 'rgba(255,255,255,.04)', borderRadius: '5px',
-                    padding: '8px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap',
-                });
-                IR.appendChild(Span(TargetItemName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
-                if (KVal  > 0)                              IR.appendChild(Span('Val: '     + Fmt(KVal),    { fontSize: '11px', color: '#4db87a', fontWeight: '600' }));
-                if (KRAP  > 0)                              IR.appendChild(Span('RAP: '     + Fmt(KRAP),    { fontSize: '11px', color: '#4a9fd4', fontWeight: '600' }));
-                if (KDemand && KDemand !== 'None')          IR.appendChild(Span('Demand: '  + KDemand,      { fontSize: '11px', color: '#c9a84c' }));
-                IR.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#555' }));
-                TgtInfo.appendChild(IR);
-                UpdateRatioBar();
+                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '8px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap' });
+                Row.appendChild(Span(TgtName, { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
+                if (KV > 0) Row.appendChild(Span('Val: '    + Fmt(KV), { fontSize: '11px', color: '#4db87a', fontWeight: '600' }));
+                if (KR > 0) Row.appendChild(Span('RAP: '    + Fmt(KR), { fontSize: '11px', color: '#4a9fd4', fontWeight: '600' }));
+                if (KD && KD !== 'None') Row.appendChild(Span('Demand: ' + KD, { fontSize: '11px', color: '#c9a84c' }));
+                Row.appendChild(Span('ID: ' + ItemId, { fontSize: '10px', color: '#555' }));
+                TgtInfo.appendChild(Row);
+                CalcRatio();
             } catch (E) {
                 TgtInfo.innerHTML = '';
                 TgtInfo.appendChild(Span('Not found: ' + E.message, { fontSize: '12px', color: '#e74c3c' }));
             }
         }
 
-        FindBtn.addEventListener('click', SearchTarget);
-        TgtInput.addEventListener('keydown', E => { if (E.key === 'Enter') SearchTarget(); });
+        FindBtn.addEventListener('click', DoSearch);
+        TgtInp.addEventListener('keydown', E => { if (E.key === 'Enter') DoSearch(); });
 
-        // ── Live ratio bar ────────────────────────────────────────────────────
-        const RatioBar   = El('div', { display: 'flex', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '6px 12px', marginBottom: '10px', fontSize: '12px', color: '#8b949e', flexWrap: 'wrap' });
-        const RatioOffer = Span('Offer: 0', {});
-        const RatioReq   = Span('Requesting: 0', {});
-        const RatioVal   = Span('Ratio: —', { fontWeight: '700' });
-        RatioBar.appendChild(RatioOffer); RatioBar.appendChild(RatioReq); RatioBar.appendChild(RatioVal);
-        BlastPage.appendChild(RatioBar);
+        // ── Ratio bar ─────────────────────────────────────────────────────
+        const RBar = El('div', { display: 'flex', gap: '10px', background: 'rgba(255,255,255,.04)', borderRadius: '5px', padding: '6px 12px', marginBottom: '10px', fontSize: '12px', color: '#8b949e', flexWrap: 'wrap' });
+        const RO   = Span('Offer: 0', {});
+        const RR   = Span('Requesting: 0', {});
+        const RV   = Span('Ratio: —', { fontWeight: '700' });
+        RBar.appendChild(RO); RBar.appendChild(RR); RBar.appendChild(RV);
+        BlastPage.appendChild(RBar);
 
-        function UpdateRatioBar() {
-            const Kmap  = KmapCache || NS.KCache || {};
+        function CalcRatio() {
+            const Kmap  = NS.KCache || {};
             let OTotal  = 0;
-            for (const UAId of SelectedOfferIds) {
-                const I = InventoryItems.find(X => String(X.userAssetId) === String(UAId));
+            for (const UAId of SelOffer) {
+                const I = InvItems.find(X => String(X.userAssetId) === String(UAId));
                 if (I) OTotal += I.value > 0 ? I.value : I.rap;
             }
-            const TItem = TargetItemId ? (Kmap[TargetItemId] || {}) : {};
-            const RVal  = (TItem.Value || TItem.value || 0) > 0 ? (TItem.Value || TItem.value) : (TItem.RAP || TItem.rap || 0);
-            const Ratio = RVal > 0 && OTotal > 0 ? (OTotal / RVal).toFixed(2) : '—';
+            const TK    = TgtId ? (Kmap[TgtId] || {}) : {};
+            const RVal  = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
+            const Ratio = (RVal > 0 && OTotal > 0) ? (OTotal / RVal).toFixed(2) : '—';
             const RC    = Ratio !== '—' ? (parseFloat(Ratio) >= 1 ? '#4db87a' : parseFloat(Ratio) >= 0.7 ? '#f59e0b' : '#e74c3c') : '#8b949e';
-            RatioOffer.textContent = 'Offer: '       + Fmt(OTotal);
-            RatioReq.textContent   = ' · Requesting: ' + Fmt(RVal);
-            RatioVal.textContent   = ' · Ratio: '    + Ratio + 'x';
-            RatioVal.style.color   = RC;
+            RO.textContent = 'Offer: '        + Fmt(OTotal);
+            RR.textContent = ' · Requesting: ' + Fmt(RVal);
+            RV.textContent = ' · Ratio: '     + Ratio + 'x';
+            RV.style.color = RC;
         }
 
-        // ── 3. Options ────────────────────────────────────────────────────────
-        BlastPage.appendChild(SecLabel('3. Options', '2px'));
+        // ── 3. Options ────────────────────────────────────────────────────
+        BlastPage.appendChild(SecLbl('3. Options', '2px'));
+        const OG   = El('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px', marginBottom: '12px' });
+        const Opts = { delaySec: 5, maxUsers: 50, minRatio: 0, skipDupUid: true, skipPending: false, multiItems: false };
 
-        const OptsGrid = El('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px', marginBottom: '12px' });
-        const Opts     = { delaySec: 5, maxUsers: 50, minRatio: 0, skipDupUid: true, skipPending: false, multiItems: false };
-
-        function NumRow(Label, GetV, SetV, Min, Max, Step) {
-            const Wr   = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
-            Wr.appendChild(Span(Label, { fontSize: '11px', color: '#8b949e' }));
-            const Ctrl = El('div', { display: 'flex', alignItems: 'center', gap: '6px' });
-            const Mk   = Txt => {
-                const B = El('button', { width: '24px', height: '24px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '15px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-                B.textContent = Txt; return B;
-            };
-            const Mn   = Mk('−'), Pl = Mk('+');
-            const Disp = El('span', { minWidth: '36px', textAlign: 'center', fontSize: '13px', fontWeight: '700', color: '#e6edf3' });
-            Disp.textContent = GetV();
-            Mn.addEventListener('click', () => { const V = Math.max(Min, GetV() - Step); SetV(V); Disp.textContent = V; });
-            Pl.addEventListener('click',  () => { const V = Math.min(Max, GetV() + Step); SetV(V); Disp.textContent = V; });
-            Ctrl.appendChild(Mn); Ctrl.appendChild(Disp); Ctrl.appendChild(Pl); Wr.appendChild(Ctrl);
-            return Wr;
+        function NumRow(Lbl, Gv, Sv, Min, Max, Step) {
+            const Wr  = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
+            Wr.appendChild(Span(Lbl, { fontSize: '11px', color: '#8b949e' }));
+            const Cr  = El('div', { display: 'flex', alignItems: 'center', gap: '6px' });
+            const MkB = T => { const B = El('button', { width: '24px', height: '24px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '15px', lineHeight: '1', display: 'flex', alignItems: 'center', justifyContent: 'center' }); B.textContent = T; return B; };
+            const Mn  = MkB('−'), Pl = MkB('+');
+            const Dp  = El('span', { minWidth: '36px', textAlign: 'center', fontSize: '13px', fontWeight: '700', color: '#e6edf3' }); Dp.textContent = Gv();
+            Mn.addEventListener('click', () => { const V = Math.max(Min, Gv() - Step); Sv(V); Dp.textContent = V; });
+            Pl.addEventListener('click',  () => { const V = Math.min(Max, Gv() + Step); Sv(V); Dp.textContent = V; });
+            Cr.appendChild(Mn); Cr.appendChild(Dp); Cr.appendChild(Pl); Wr.appendChild(Cr); return Wr;
         }
 
-        function ChkRow(Label, GetV, SetV) {
+        function ChkRow(Lbl, Gv, Sv) {
             const Wr  = El('div', { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' });
-            const Box = El('div', {
-                width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0',
-                background: GetV() ? '#238636' : '#21262d',
-                border: '1px solid ' + (GetV() ? '#2ea043' : 'rgba(255,255,255,.2)'),
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-            });
-            if (GetV()) { const Ck = SvgIcon('M20 6L9 17l-5-5', '11'); Ck.style.color = '#fff'; Box.appendChild(Ck); }
+            const Box = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: Gv() ? '#238636' : '#21262d', border: '1px solid ' + (Gv() ? '#2ea043' : 'rgba(255,255,255,.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
+            if (Gv()) { const C = Svg(I_CHECK, '11'); C.style.color = '#fff'; Box.appendChild(C); }
             Box.addEventListener('click', () => {
-                const V = !GetV(); SetV(V);
+                const V = !Gv(); Sv(V);
                 Box.style.background = V ? '#238636' : '#21262d';
                 Box.style.border     = '1px solid ' + (V ? '#2ea043' : 'rgba(255,255,255,.2)');
                 Box.innerHTML        = '';
-                if (V) { const Ck = SvgIcon('M20 6L9 17l-5-5', '11'); Ck.style.color = '#fff'; Box.appendChild(Ck); }
+                if (V) { const C = Svg(I_CHECK, '11'); C.style.color = '#fff'; Box.appendChild(C); }
             });
-            Wr.appendChild(Box); Wr.appendChild(Span(Label, { fontSize: '12px', color: '#ccc' }));
-            return Wr;
+            Wr.appendChild(Box); Wr.appendChild(Span(Lbl, { fontSize: '12px', color: '#ccc' })); return Wr;
         }
 
-        const MinRatioWr = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
-        MinRatioWr.appendChild(Span('Min ratio (0 = off)', { fontSize: '11px', color: '#8b949e' }));
-        const RatioInp = El('input', { background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', padding: '4px 8px', fontSize: '13px', width: '80px', outline: 'none', type: 'number', min: '0', step: '0.1' });
-        RatioInp.value = '0';
-        RatioInp.addEventListener('input', () => { Opts.minRatio = parseFloat(RatioInp.value) || 0; });
-        MinRatioWr.appendChild(RatioInp);
+        const MRW = El('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
+        MRW.appendChild(Span('Min ratio (0 = off)', { fontSize: '11px', color: '#8b949e' }));
+        const MRI = El('input', { background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', padding: '4px 8px', fontSize: '13px', width: '80px', outline: 'none', type: 'number', min: '0', step: '0.1' });
+        MRI.value = '0'; MRI.addEventListener('input', () => { Opts.minRatio = parseFloat(MRI.value) || 0; }); MRW.appendChild(MRI);
 
-        OptsGrid.appendChild(NumRow('Delay (s)',   () => Opts.delaySec, V => { Opts.delaySec = V; }, 1, 30, 1));
-        OptsGrid.appendChild(NumRow('Max users',   () => Opts.maxUsers, V => { Opts.maxUsers = V; }, 1, 200, 10));
-        OptsGrid.appendChild(MinRatioWr);
-        OptsGrid.appendChild(El('div', {}));
-        OptsGrid.appendChild(ChkRow('Skip duplicate UIDs',              () => Opts.skipDupUid,  V => { Opts.skipDupUid  = V; }));
-        OptsGrid.appendChild(ChkRow('Skip users with pending trade',    () => Opts.skipPending, V => { Opts.skipPending = V; }));
-        OptsGrid.appendChild(ChkRow('Request multiple items (up to 4)', () => Opts.multiItems,  V => { Opts.multiItems  = V; }));
-        BlastPage.appendChild(OptsGrid);
+        OG.appendChild(NumRow('Delay (s)',   () => Opts.delaySec, V => { Opts.delaySec = V; }, 1, 30, 1));
+        OG.appendChild(NumRow('Max users',   () => Opts.maxUsers, V => { Opts.maxUsers = V; }, 1, 200, 10));
+        OG.appendChild(MRW); OG.appendChild(El('div', {}));
+        OG.appendChild(ChkRow('Skip duplicate UIDs',              () => Opts.skipDupUid,  V => { Opts.skipDupUid  = V; }));
+        OG.appendChild(ChkRow('Skip users with pending trade',    () => Opts.skipPending, V => { Opts.skipPending = V; }));
+        OG.appendChild(ChkRow('Request multiple items (up to 4)', () => Opts.multiItems,  V => { Opts.multiItems  = V; }));
+        BlastPage.appendChild(OG);
 
-        // ── Log box ───────────────────────────────────────────────────────────
-        const LogBox = El('div', {
-            background: '#0d1117', borderRadius: '5px', padding: '8px 10px',
-            height: '130px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px',
-            border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px',
-        });
+        // ── Log box ───────────────────────────────────────────────────────
+        const LogBox = El('div', { background: '#0d1117', borderRadius: '5px', padding: '8px 10px', height: '130px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
         BlastPage.appendChild(LogBox);
         const Log = (T, C) => LogLine(LogBox, T, C);
 
-        // ── Footer ────────────────────────────────────────────────────────────
-        const BlaFoot = El('div', { display: 'flex', gap: '8px', alignItems: 'center' });
-        const SendBtn = El('button', {
-            flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff',
-            background: '#238636', border: '1px solid #2ea043', borderRadius: '6px',
-            cursor: 'pointer', transition: 'background .15s',
-        });
+        // ── Footer ────────────────────────────────────────────────────────
+        const BF      = El('div', { display: 'flex', gap: '8px', alignItems: 'center' });
+        const SendBtn = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#238636', border: '1px solid #2ea043', borderRadius: '6px', cursor: 'pointer' });
         SendBtn.textContent = 'Send All Trades'; SendBtn.dataset.idleLabel = 'Send All Trades';
-
-        const StopBtn = El('button', {
-            padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff',
-            background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer',
-        });
+        const StopBtn = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' });
         StopBtn.textContent = 'Stop';
-
-        const CsvBtn = El('button', {
-            padding: '9px 12px', fontSize: '12px', fontWeight: '600', color: '#8b949e',
-            background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '6px', cursor: 'pointer',
-        });
+        const CsvBtn  = El('button', { padding: '9px 12px', fontSize: '12px', fontWeight: '600', color: '#8b949e', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '6px', cursor: 'pointer' });
         CsvBtn.textContent = 'CSV';
 
         let TradeLog = [];
-
-        CsvBtn.addEventListener('click',  () => { if (!TradeLog.length) { Toast('No trades to export yet', 'warn'); return; } ExportCsv(TradeLog); });
+        CsvBtn.addEventListener('click',  () => { if (!TradeLog.length) { Toast('No trades to export', 'warn'); return; } ExportCsv(TradeLog); });
         StopBtn.addEventListener('click', () => { BT_Abort = true; Log('Stopped by user.', '#e74c3c'); SetBtnState(SendBtn, 'idle'); BT_Running = false; });
 
         SendBtn.addEventListener('click', async () => {
             if (BT_Running) return;
-            if (!SelectedOfferIds.size) { Toast('Select at least one offer item', 'warn'); return; }
-            if (!TargetItemId)          { Toast('Set a target item first', 'warn'); return; }
+            if (!SelOffer.size) { Toast('Select at least one offer item', 'warn'); return; }
+            if (!TgtId)         { Toast('Set a target item first', 'warn'); return; }
 
             BT_Running = true; BT_Abort = false; TradeLog = [];
             SetBtnState(SendBtn, 'running'); LogBox.innerHTML = '';
 
-            const MyUAIds  = [...SelectedOfferIds].map(Number);
-            const Kmap     = KmapCache || NS.KCache || {};
+            const MyUAIds  = [...SelOffer].map(Number);
+            const Kmap     = NS.KCache || {};
             const OfferVal = MyUAIds.reduce((S, UAId) => {
-                const I = InventoryItems.find(X => X.userAssetId === UAId);
+                const I = InvItems.find(X => X.userAssetId === UAId);
                 return S + (I ? (I.value > 0 ? I.value : I.rap) : 0);
             }, 0);
 
-            Log('Target: ' + TargetItemName + ' (ID ' + TargetItemId + ')');
-            Log('Fetching owners...');
-            const Owners = await FetchOwners(TargetItemId, Log);
+            Log('Target: ' + TgtName + ' (ID ' + TgtId + ')');
+            Log('Fetching resellers...');
+            const Owners = await FetchOwners(TgtId, Log);
             if (!Owners.length) { Log('No owners found.', '#e74c3c'); SetBtnState(SendBtn, 'error'); BT_Running = false; return; }
 
             const Capped = Owners.slice(0, Opts.maxUsers);
-            Log('Sending to up to ' + Capped.length + ' owners  delay ' + Opts.delaySec + 's', '#4a9fd4');
+            Log('Sending to ' + Capped.length + ' owners, ' + Opts.delaySec + 's delay', '#4a9fd4');
 
             let Sent = 0, Skipped = 0, Failed = 0;
             const SeenUids = new Set();
@@ -696,232 +598,184 @@
                 const Owner = Capped[Idx];
 
                 if (Opts.minRatio > 0) {
-                    const TItem = Kmap[TargetItemId] || {};
-                    const RVal  = (TItem.Value || TItem.value || 0) > 0 ? (TItem.Value || TItem.value) : (TItem.RAP || TItem.rap || 0);
+                    const TK    = Kmap[TgtId] || {};
+                    const RVal  = (TK.Value || TK.value || 0) > 0 ? (TK.Value || TK.value) : (TK.RAP || TK.rap || 0);
                     const Ratio = RVal > 0 ? OfferVal / RVal : 0;
-                    if (Ratio < Opts.minRatio) { Log('Skip ' + Owner.username + ' — ratio ' + Ratio.toFixed(2) + 'x < min', '#555'); Skipped++; continue; }
+                    if (Ratio < Opts.minRatio) { Log('Skip ' + Owner.username + ' ratio ' + Ratio.toFixed(2) + 'x', '#555'); Skipped++; continue; }
                 }
-
-                if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup UID ' + Owner.username, '#555'); Skipped++; continue; }
+                if (Opts.skipDupUid && SeenUids.has(Owner.userId)) { Log('Skip dup ' + Owner.username, '#555'); Skipped++; continue; }
                 SeenUids.add(Owner.userId);
 
                 const TheirUAIds = Opts.multiItems ? Owner.userAssetIds.slice(0, 4) : [Owner.userAssetIds[0]];
-
                 try {
                     await SendTrade(MyUAIds, Owner.userId, TheirUAIds);
                     Log('Sent to ' + Owner.username + ' (' + Owner.userId + ')', '#4db87a');
-                    TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TargetItemName, uid: Owner.userId, status: 'Sent', detail: Owner.username });
+                    TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Sent', detail: Owner.username });
                     Sent++;
                 } catch (E) {
-                    Log('Failed  ' + Owner.username + ': ' + E.message, '#e74c3c');
-                    TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TargetItemName, uid: Owner.userId, status: 'Failed', detail: E.message });
+                    Log('Failed ' + Owner.username + ': ' + E.message, '#e74c3c');
+                    TradeLog.push({ ts: new Date().toISOString(), mode: 'Blast', target: TgtName, uid: Owner.userId, status: 'Failed', detail: E.message });
                     Failed++;
                 }
-
                 if (!BT_Abort && Idx < Capped.length - 1) { Log('Waiting ' + Opts.delaySec + 's...', '#555'); await Sleep(Opts.delaySec * 1000); }
             }
 
             const Summ = `Done — Sent: ${Sent}  Skipped: ${Skipped}  Failed: ${Failed}`;
-            Log(Summ, '#4db87a');
-            Toast(Summ, 'success');
-            SetBtnState(SendBtn, 'done');
-            BT_Running = false;
+            Log(Summ, '#4db87a'); Toast(Summ, 'success');
+            SetBtnState(SendBtn, 'done'); BT_Running = false;
         });
 
-        BlaFoot.appendChild(SendBtn); BlaFoot.appendChild(StopBtn); BlaFoot.appendChild(CsvBtn);
-        BlastPage.appendChild(BlaFoot);
+        BF.appendChild(SendBtn); BF.appendChild(StopBtn); BF.appendChild(CsvBtn);
+        BlastPage.appendChild(BF);
 
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ══════════════════════════════════════════════════════════════════
         //  PAGE 1 — CANCEL TRADES
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ══════════════════════════════════════════════════════════════════
         const CancelPage = El('div', { display: 'none' });
-        CancelPage.appendChild(SecLabel('Outbound Trades'));
+        CancelPage.appendChild(SecLbl('Outbound Trades'));
 
-        const CTRow    = El('div', { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' });
-        const LoadTrBtn = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer' });
-        LoadTrBtn.textContent = 'Load Trades';
-        const CFilterInp = El('input', { flex: '1', minWidth: '120px', padding: '5px 10px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '12px', outline: 'none' });
-        CFilterInp.placeholder = 'Filter by username...';
+        const CTR    = El('div', { display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' });
+        const LTBtn  = El('button', { padding: '6px 16px', fontSize: '12px', fontWeight: '700', color: '#fff', background: '#1f6feb', border: '1px solid #388bfd', borderRadius: '5px', cursor: 'pointer' });
+        LTBtn.textContent = 'Load Trades';
+        const CFInp  = El('input', { flex: '1', minWidth: '120px', padding: '5px 10px', background: '#21262d', color: '#e6edf3', border: '1px solid rgba(255,255,255,.12)', borderRadius: '5px', fontSize: '12px', outline: 'none' });
+        CFInp.placeholder = 'Filter by username...';
 
-        const AgeRow  = El('div', { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#8b949e' });
-        let CancelAgeDays = 7;
-        const MkAgeBtn = Txt => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = Txt; return B; };
-        const AgeMn   = MkAgeBtn('−'), AgePl = MkAgeBtn('+');
-        const AgeDisp = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' });
-        AgeDisp.textContent = '7d';
-        AgeMn.addEventListener('click', () => { CancelAgeDays = Math.max(1,  CancelAgeDays - 1); AgeDisp.textContent = CancelAgeDays + 'd'; });
-        AgePl.addEventListener('click',  () => { CancelAgeDays = Math.min(60, CancelAgeDays + 1); AgeDisp.textContent = CancelAgeDays + 'd'; });
-        AgeRow.appendChild(Span('Cancel > ')); AgeRow.appendChild(AgeMn); AgeRow.appendChild(AgeDisp); AgeRow.appendChild(AgePl); AgeRow.appendChild(Span(' days'));
-        CTRow.appendChild(LoadTrBtn); CTRow.appendChild(CFilterInp); CTRow.appendChild(AgeRow);
-        CancelPage.appendChild(CTRow);
+        const AR     = El('div', { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#8b949e' });
+        let CAgeDays = 7;
+        const MkAB   = T => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = T; return B; };
+        const AMn    = MkAB('−'), APl = MkAB('+');
+        const AD     = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' }); AD.textContent = '7d';
+        AMn.addEventListener('click', () => { CAgeDays = Math.max(1,  CAgeDays - 1); AD.textContent = CAgeDays + 'd'; });
+        APl.addEventListener('click',  () => { CAgeDays = Math.min(60, CAgeDays + 1); AD.textContent = CAgeDays + 'd'; });
+        AR.appendChild(Span('Cancel > ')); AR.appendChild(AMn); AR.appendChild(AD); AR.appendChild(APl); AR.appendChild(Span(' days'));
+        CTR.appendChild(LTBtn); CTR.appendChild(CFInp); CTR.appendChild(AR);
+        CancelPage.appendChild(CTR);
 
-        const SelRow = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' });
-        const SelBox = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: '#238636', border: '1px solid #2ea043', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-        const SelCk  = SvgIcon('M20 6L9 17l-5-5', '11'); SelCk.style.color = '#fff'; SelBox.appendChild(SelCk);
-        const SelCnt = Span('', { fontSize: '11px', color: '#8b949e', marginLeft: 'auto' });
-        SelRow.appendChild(SelBox); SelRow.appendChild(Span('Select all', { fontSize: '12px', color: '#ccc' })); SelRow.appendChild(SelCnt);
-        CancelPage.appendChild(SelRow);
+        const SR    = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', cursor: 'pointer', userSelect: 'none' });
+        const SBox  = El('div', { width: '16px', height: '16px', borderRadius: '3px', flexShrink: '0', background: '#238636', border: '1px solid #2ea043', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        const SCk   = Svg(I_CHECK, '11'); SCk.style.color = '#fff'; SBox.appendChild(SCk);
+        const SCnt  = Span('', { fontSize: '11px', color: '#8b949e', marginLeft: 'auto' });
+        SR.appendChild(SBox); SR.appendChild(Span('Select all', { fontSize: '12px', color: '#ccc' })); SR.appendChild(SCnt);
+        CancelPage.appendChild(SR);
 
-        const TradeList    = El('div', { height: '160px', overflowY: 'auto', background: '#0d1117', borderRadius: '5px', padding: '4px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
-        let OutboundTrades = [];
-        let SelTrades      = new Set();
-        CancelPage.appendChild(TradeList);
+        const TList   = El('div', { height: '160px', overflowY: 'auto', background: '#0d1117', borderRadius: '5px', padding: '4px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
+        let OBTrades  = [];
+        let SelT      = new Set();
+        CancelPage.appendChild(TList);
 
-        function RenderCancelList(Filter) {
-            TradeList.innerHTML = '';
-            const Now    = Date.now();
-            const Cutoff = CancelAgeDays * 86400000;
-            const FL     = (Filter || '').toLowerCase();
-            const Visible = OutboundTrades.filter(T => (!FL || T.partnerName.toLowerCase().includes(FL)) && (Now - new Date(T.sentAt).getTime() >= Cutoff));
-            if (!Visible.length) { TradeList.appendChild(Span('No trades match.', { fontSize: '12px', color: '#555', padding: '10px', display: 'block' })); SelCnt.textContent = SelTrades.size + ' selected'; return; }
-            Visible.forEach(T => {
-                const Sel = SelTrades.has(T.tradeId);
-                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(220,38,38,.15)' : 'transparent', border: '1px solid ' + (Sel ? '#dc2626' : 'transparent'), marginBottom: '2px', transition: 'background .1s' });
+        function RenderCancelList(F) {
+            TList.innerHTML = '';
+            const Now = Date.now(), Cut = CAgeDays * 86400000, FL = (F || '').toLowerCase();
+            const Vis = OBTrades.filter(T => (!FL || T.pn.toLowerCase().includes(FL)) && (Now - new Date(T.sa).getTime() >= Cut));
+            if (!Vis.length) { TList.appendChild(Span('No trades match.', { fontSize: '12px', color: '#555', padding: '10px', display: 'block' })); SCnt.textContent = SelT.size + ' selected'; return; }
+            Vis.forEach(T => {
+                const Sel = SelT.has(T.id);
+                const Row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 8px', borderRadius: '4px', cursor: 'pointer', userSelect: 'none', background: Sel ? 'rgba(220,38,38,.15)' : 'transparent', border: '1px solid ' + (Sel ? '#dc2626' : 'transparent'), marginBottom: '2px' });
                 const CB  = El('div', { width: '14px', height: '14px', borderRadius: '3px', flexShrink: '0', background: Sel ? '#dc2626' : '#21262d', border: '1px solid ' + (Sel ? '#dc2626' : 'rgba(255,255,255,.2)'), display: 'flex', alignItems: 'center', justifyContent: 'center' });
-                if (Sel) { const Ck = SvgIcon('M20 6L9 17l-5-5', '10'); Ck.style.color = '#fff'; CB.appendChild(Ck); }
+                if (Sel) { const C = Svg(I_CHECK, '10'); C.style.color = '#fff'; CB.appendChild(C); }
                 Row.appendChild(CB);
-                Row.appendChild(Span(T.partnerName, { flex: '1', fontSize: '12px', color: '#e6edf3' }));
-                Row.appendChild(Span('sent ' + new Date(T.sentAt).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#555' }));
-                Row.addEventListener('click', () => {
-                    if (SelTrades.has(T.tradeId)) SelTrades.delete(T.tradeId);
-                    else SelTrades.add(T.tradeId);
-                    RenderCancelList(CFilterInp.value);
-                });
-                TradeList.appendChild(Row);
+                Row.appendChild(Span(T.pn, { flex: '1', fontSize: '12px', color: '#e6edf3' }));
+                Row.appendChild(Span('sent ' + new Date(T.sa).toLocaleDateString('en-GB'), { fontSize: '10px', color: '#555' }));
+                Row.addEventListener('click', () => { if (SelT.has(T.id)) SelT.delete(T.id); else SelT.add(T.id); RenderCancelList(CFInp.value); });
+                TList.appendChild(Row);
             });
-            SelCnt.textContent = SelTrades.size + ' selected';
+            SCnt.textContent = SelT.size + ' selected';
         }
 
-        SelBox.addEventListener('click', () => {
-            const Cutoff  = CancelAgeDays * 86400000;
-            const FL      = CFilterInp.value.toLowerCase();
-            const Visible = OutboundTrades.filter(T => (!FL || T.partnerName.toLowerCase().includes(FL)) && (Date.now() - new Date(T.sentAt).getTime() >= Cutoff));
-            const AllSel  = Visible.length > 0 && Visible.every(T => SelTrades.has(T.tradeId));
-            if (AllSel) {
-                Visible.forEach(T => SelTrades.delete(T.tradeId));
-                SelBox.innerHTML = ''; SelBox.style.background = '#21262d'; SelBox.style.border = '1px solid rgba(255,255,255,.2)';
-            } else {
-                Visible.forEach(T => SelTrades.add(T.tradeId));
-                SelBox.innerHTML = ''; SelBox.style.background = '#238636'; SelBox.style.border = '1px solid #2ea043';
-                const Ck = SvgIcon('M20 6L9 17l-5-5', '11'); Ck.style.color = '#fff'; SelBox.appendChild(Ck);
-            }
-            RenderCancelList(CFilterInp.value);
+        SBox.addEventListener('click', () => {
+            const Cut = CAgeDays * 86400000, FL = CFInp.value.toLowerCase();
+            const Vis = OBTrades.filter(T => (!FL || T.pn.toLowerCase().includes(FL)) && (Date.now() - new Date(T.sa).getTime() >= Cut));
+            const All = Vis.length > 0 && Vis.every(T => SelT.has(T.id));
+            if (All) { Vis.forEach(T => SelT.delete(T.id)); SBox.innerHTML = ''; SBox.style.background = '#21262d'; SBox.style.border = '1px solid rgba(255,255,255,.2)'; }
+            else     { Vis.forEach(T => SelT.add(T.id));    SBox.innerHTML = ''; SBox.style.background = '#238636'; SBox.style.border = '1px solid #2ea043'; const C = Svg(I_CHECK,'11'); C.style.color='#fff'; SBox.appendChild(C); }
+            RenderCancelList(CFInp.value);
         });
+        CFInp.addEventListener('input', () => RenderCancelList(CFInp.value));
 
-        CFilterInp.addEventListener('input', () => RenderCancelList(CFilterInp.value));
-
-        LoadTrBtn.addEventListener('click', async () => {
-            LoadTrBtn.textContent = 'Loading...'; LoadTrBtn.disabled = true;
-            OutboundTrades = []; SelTrades.clear(); TradeList.innerHTML = '';
-            TradeList.appendChild(Span('Fetching outbound trades...', { fontSize: '12px', color: '#8b949e', padding: '10px', display: 'block' }));
+        LTBtn.addEventListener('click', async () => {
+            LTBtn.textContent = 'Loading...'; LTBtn.disabled = true;
+            OBTrades = []; SelT.clear(); TList.innerHTML = '';
+            TList.appendChild(Span('Fetching outbound trades...', { fontSize: '12px', color: '#8b949e', padding: '10px', display: 'block' }));
             try {
-                let Cursor = null, Page = 1, All = [];
+                let Cur = null, Pg = 1, All = [];
                 do {
-                    const Url = '/apisite/trades/v1/trades/outbound?limit=100&sortOrder=Desc' + (Cursor ? '&cursor=' + Cursor : '');
-                    const R   = await fetch(Url, { credentials: 'include' }).then(R2 => R2.json());
-                    All    = All.concat(R.data || []);
-                    Cursor = R.nextPageCursor || null;
-                    Page++;
-                } while (Cursor && Page <= 10);
-
-                OutboundTrades = All.map(T => ({
-                    tradeId:     T.id,
-                    partnerName: T.user?.name || String(T.user?.id || '?'),
-                    sentAt:      T.created,
-                }));
-
-                const Cutoff = CancelAgeDays * 86400000;
-                OutboundTrades.filter(T => (Date.now() - new Date(T.sentAt).getTime()) >= Cutoff).forEach(T => SelTrades.add(T.tradeId));
-                RenderCancelList('');
-                LoadTrBtn.textContent = 'Loaded ' + OutboundTrades.length;
+                    const R = await fetch('/apisite/trades/v1/trades/outbound?limit=100&sortOrder=Desc' + (Cur ? '&cursor=' + Cur : ''), { credentials: 'include' }).then(R2 => R2.json());
+                    All = All.concat(R.data || []);
+                    Cur = R.nextPageCursor || null; Pg++;
+                } while (Cur && Pg <= 10);
+                OBTrades = All.map(T => ({ id: T.id, pn: T.user?.name || String(T.user?.id || '?'), sa: T.created }));
+                const Cut = CAgeDays * 86400000;
+                OBTrades.filter(T => (Date.now() - new Date(T.sa).getTime()) >= Cut).forEach(T => SelT.add(T.id));
+                RenderCancelList(''); LTBtn.textContent = 'Loaded ' + OBTrades.length;
             } catch (E) {
-                TradeList.innerHTML = '';
-                TradeList.appendChild(Span('Failed: ' + E.message, { fontSize: '12px', color: '#e74c3c', padding: '10px', display: 'block' }));
-                LoadTrBtn.textContent = 'Load Trades';
+                TList.innerHTML = ''; TList.appendChild(Span('Failed: ' + E.message, { fontSize: '12px', color: '#e74c3c', padding: '10px', display: 'block' }));
+                LTBtn.textContent = 'Load Trades';
             }
-            LoadTrBtn.disabled = false;
+            LTBtn.disabled = false;
         });
 
-        const CDelRow = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#8b949e' });
-        CDelRow.appendChild(Span('Delay between cancels:'));
-        let CancelDelay = 2;
-        const MkCDBtn  = Txt => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = Txt; return B; };
-        const CDMn    = MkCDBtn('−'), CDPl = MkCDBtn('+');
-        const CDDisp  = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' });
-        CDDisp.textContent = '2s';
-        CDMn.addEventListener('click', () => { CancelDelay = Math.max(1,  CancelDelay - 1); CDDisp.textContent = CancelDelay + 's'; });
-        CDPl.addEventListener('click',  () => { CancelDelay = Math.min(30, CancelDelay + 1); CDDisp.textContent = CancelDelay + 's'; });
-        CDelRow.appendChild(CDMn); CDelRow.appendChild(CDDisp); CDelRow.appendChild(CDPl);
-        CancelPage.appendChild(CDelRow);
+        const CDR  = El('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#8b949e' });
+        CDR.appendChild(Span('Delay between cancels:'));
+        let CDel   = 2;
+        const MkCB = T => { const B = El('button', { width: '22px', height: '22px', background: '#21262d', border: '1px solid rgba(255,255,255,.15)', borderRadius: '4px', color: '#e6edf3', cursor: 'pointer', fontSize: '13px' }); B.textContent = T; return B; };
+        const CMn  = MkCB('−'), CPl = MkCB('+');
+        const CD   = El('span', { fontSize: '13px', fontWeight: '700', color: '#e6edf3', minWidth: '28px', textAlign: 'center' }); CD.textContent = '2s';
+        CMn.addEventListener('click', () => { CDel = Math.max(1, CDel-1); CD.textContent = CDel+'s'; });
+        CPl.addEventListener('click',  () => { CDel = Math.min(30,CDel+1); CD.textContent = CDel+'s'; });
+        CDR.appendChild(CMn); CDR.appendChild(CD); CDR.appendChild(CPl); CancelPage.appendChild(CDR);
 
-        const CLogBox  = El('div', { background: '#0d1117', borderRadius: '5px', padding: '8px 10px', height: '80px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
-        const CLog     = (T, C) => LogLine(CLogBox, T, C);
-        CancelPage.appendChild(CLogBox);
+        const CLBox = El('div', { background: '#0d1117', borderRadius: '5px', padding: '8px 10px', height: '80px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '11px', border: '1px solid rgba(255,255,255,.08)', marginBottom: '10px' });
+        const CLog  = (T, C) => LogLine(CLBox, T, C);
+        CancelPage.appendChild(CLBox);
 
-        const CancelFoot  = El('div', { display: 'flex', gap: '8px' });
-        const DoCancelBtn = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' });
-        DoCancelBtn.textContent = 'Cancel Selected';
-        const CStopBtn = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#333', border: '1px solid rgba(255,255,255,.2)', borderRadius: '6px', cursor: 'pointer' });
-        CStopBtn.textContent = 'Stop';
+        const CF      = El('div', { display: 'flex', gap: '8px' });
+        const DCBtn   = El('button', { flex: '1', padding: '9px 0', fontSize: '14px', fontWeight: '700', color: '#fff', background: '#b91c1c', border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer' });
+        DCBtn.textContent = 'Cancel Selected';
+        const CSBtn   = El('button', { padding: '9px 16px', fontSize: '13px', fontWeight: '700', color: '#fff', background: '#333', border: '1px solid rgba(255,255,255,.2)', borderRadius: '6px', cursor: 'pointer' });
+        CSBtn.textContent = 'Stop';
+        CSBtn.addEventListener('click', () => { CancelAbort = true; CLog('Stopped.', '#e74c3c'); DCBtn.disabled = false; DCBtn.textContent = 'Cancel Selected'; CancelRunning = false; });
 
-        CStopBtn.addEventListener('click', () => { CancelAbort = true; CLog('Stopped.', '#e74c3c'); DoCancelBtn.disabled = false; DoCancelBtn.textContent = 'Cancel Selected'; CancelRunning = false; });
-
-        DoCancelBtn.addEventListener('click', async () => {
+        DCBtn.addEventListener('click', async () => {
             if (CancelRunning) return;
-            if (!SelTrades.size) { Toast('No trades selected', 'warn'); return; }
+            if (!SelT.size) { Toast('No trades selected', 'warn'); return; }
             CancelRunning = true; CancelAbort = false;
-            DoCancelBtn.textContent = 'Running...'; DoCancelBtn.disabled = true; CLogBox.innerHTML = '';
-            const Ids = [...SelTrades];
+            DCBtn.textContent = 'Running...'; DCBtn.disabled = true; CLBox.innerHTML = '';
+            const Ids = [...SelT];
             CLog('Cancelling ' + Ids.length + ' trades...', '#4a9fd4');
             let Done = 0, Fail = 0;
-            for (let Idx = 0; Idx < Ids.length; Idx++) {
+            for (let I = 0; I < Ids.length; I++) {
                 if (CancelAbort) break;
-                const TId = Ids[Idx];
+                const TId = Ids[I];
                 try {
                     const Csrf = await GetCsrf();
-                    const R    = await fetch('/apisite/trades/v1/trades/' + TId + '/decline', {
-                        method: 'POST', credentials: 'include',
-                        headers: { 'Content-Type': 'application/json', 'x-csrf-token': Csrf },
-                    });
+                    const R    = await fetch('/apisite/trades/v1/trades/' + TId + '/decline', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'x-csrf-token': Csrf } });
                     if (!R.ok) throw new Error('HTTP ' + R.status);
-                    CLog('Cancelled trade ' + TId, '#4db87a');
-                    SelTrades.delete(TId); Done++;
+                    CLog('Cancelled ' + TId, '#4db87a'); SelT.delete(TId); Done++;
                 } catch (E) { CLog(TId + ': ' + E.message, '#e74c3c'); Fail++; }
-                if (!CancelAbort && Idx < Ids.length - 1) await Sleep(CancelDelay * 1000);
+                if (!CancelAbort && I < Ids.length - 1) await Sleep(CDel * 1000);
             }
             CLog('Done — Cancelled: ' + Done + '  Failed: ' + Fail, '#4db87a');
             Toast('Cancelled ' + Done + ' trades', 'success');
-            DoCancelBtn.textContent = 'Cancel Selected'; DoCancelBtn.disabled = false; CancelRunning = false;
-            RenderCancelList(CFilterInp.value);
+            DCBtn.textContent = 'Cancel Selected'; DCBtn.disabled = false; CancelRunning = false;
+            RenderCancelList(CFInp.value);
         });
 
-        CancelFoot.appendChild(DoCancelBtn); CancelFoot.appendChild(CStopBtn);
-        CancelPage.appendChild(CancelFoot);
+        CF.appendChild(DCBtn); CF.appendChild(CSBtn); CancelPage.appendChild(CF);
 
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        //  ASSEMBLE
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ── Assemble ──────────────────────────────────────────────────────
         Pages.push(BlastPage, CancelPage);
         Pages.forEach(P => Content.appendChild(P));
-
-        TabBtns.forEach((Btn, I) => {
-            Btn.addEventListener('click', () => {
-                TabBtns.forEach((B, J) => {
-                    B.style.color        = J === I ? '#e6edf3' : '#8b949e';
-                    B.style.borderBottom = J === I ? '2px solid #238636' : '2px solid transparent';
-                });
-                Pages.forEach((P, J) => { P.style.display = J === I ? '' : 'none'; });
+        TabBtns.forEach((B, I) => {
+            B.addEventListener('click', () => {
+                TabBtns.forEach((Btn, J) => { Btn.style.color = J===I ? '#e6edf3' : '#8b949e'; Btn.style.borderBottom = J===I ? '2px solid #238636' : '2px solid transparent'; });
+                Pages.forEach((P, J) => { P.style.display = J===I ? '' : 'none'; });
             });
         });
 
-        Panel.appendChild(Header);
-        Panel.appendChild(TabBar);
-        Panel.appendChild(Content);
-        Overlay.appendChild(Panel);
-        document.body.appendChild(Overlay);
+        Panel.appendChild(Hdr); Panel.appendChild(TabBar); Panel.appendChild(Content);
+        Overlay.appendChild(Panel); document.body.appendChild(Overlay);
     }
 
-    // ── Public API ─────────────────────────────────────────────────────────
     NS.BulkTrade = { OpenPanel: BuildBulkTradePanel };
 
 })();
