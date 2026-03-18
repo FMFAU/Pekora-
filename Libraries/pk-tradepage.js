@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-tradepage.js  —  Pekora+ Better Trades Page  (v1.0)
+//  pk-tradepage.js  —  Pekora+ Better Trades Page  (v1.1)
 //  Requires: pk-core.js (El, Span, Fmt, Toast), GM_xmlhttpRequest
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
@@ -546,7 +546,7 @@
         loadTab('inbound');
     }
 
-    NS.TradePage = { Render: RenderBetterTradesPage };
+    NS.TradePage = { Render: RenderBetterTradesPage, version: '1.1' };
     // Also expose GetSiteAccent if not already on NS (for use above)
     if (!NS.GetSiteAccent) NS.GetSiteAccent = function() { return '#0e6fff'; };
 })();
