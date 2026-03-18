@@ -217,7 +217,7 @@
                 countEl.textContent = vis.length + ' trade' + (vis.length !== 1 ? 's' : '');
                 if (!vis.length) { list.innerHTML = '<div class="pk-bt-empty">No ' + type + ' trades found.</div>'; }
                 else vis.forEach(t => list.appendChild(tradeRow(t, type)));
-                loadMoreBtn.style.display = cursor ? 'block' : 'none';
+                loadMoreBtn.style.display = (cursor && allTrades.length > 0) ? 'block' : 'none';
             }
 
             try { await fetchPage(); } catch(e) { pane.innerHTML = '<div class="pk-bt-empty">Error: ' + e.message + '</div>'; return; }
@@ -289,9 +289,6 @@
             const TX_TYPES = [
                 { v:'purchase',     l:'Purchases' },
                 { v:'sale',         l:'Sales' },
-                { v:'commision',    l:'Commission' },
-                { v:'adrevenue',    l:'Ad Revenue' },
-                { v:'group-payout', l:'Group Payout' },
             ];
             let allTx = [], cursor = null, currentType = 'purchase';
 
