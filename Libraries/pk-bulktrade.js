@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-bulktrade.js  —  Pekora+ Trade Menu  (v3.1)
+//  pk-bulktrade.js  —  Pekora+ Trade Menu  (v3.2)
 //  Exposes: window.PekoraPlus.BulkTrade
 //  Requires: pk-core.js, pk-toast.js
 //  Tabs: Blast · Cancel · History · Portfolio · Alerts · Lookup · Autosell
@@ -31,19 +31,19 @@
     // ── CSS injected once ─────────────────────────────────────────────────
     const CSS = `
 #pk-tm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:1000000;display:flex;align-items:center;justify-content:center;}
-#pk-tm-panel{background:#0d1117;border:1px solid rgba(255,255,255,.09);border-radius:12px;width:800px;max-width:97vw;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 28px 80px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06);overflow:hidden;font-family:'Source Sans Pro',sans-serif;font-size:13px;color:#8b949e;}
+#pk-tm-panel{background:#0d1117;border:1px solid rgba(255,255,255,.09);border-radius:12px;width:860px;max-width:97vw;height:640px;max-height:95vh;display:flex;flex-direction:column;box-shadow:0 28px 80px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06);overflow:hidden;font-family:'Source Sans Pro',sans-serif;font-size:13px;color:#8b949e;}
 #pk-tm-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;background:#080c10;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;cursor:grab;user-select:none;}
 #pk-tm-header:active{cursor:grabbing;}
 #pk-tm-tabbar{display:flex;background:#080c10;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;overflow-x:auto;padding:0 8px;}
 #pk-tm-tabbar::-webkit-scrollbar{display:none;}
-.pk-tm-tab{padding:10px 14px;cursor:pointer;font-size:11px;font-weight:700;color:#444;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap;flex-shrink:0;letter-spacing:.2px;text-transform:uppercase;}
-.pk-tm-tab:hover{color:#8b949e;}
+.pk-tm-tab{padding:10px 13px;cursor:pointer;font-size:11px;font-weight:600;color:#444;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap;flex-shrink:0;letter-spacing:.1px;text-transform:uppercase;display:flex;align-items:center;gap:5px;}
+.pk-tm-tab:hover{color:#6b7280;}
 .pk-tm-tab.pk-tm-active{color:#e6edf3;border-bottom-color:var(--pk-accent,#0e6fff);}
-#pk-tm-body{overflow-y:auto;flex:1;min-height:0;}
+#pk-tm-body{flex:1;min-height:0;position:relative;overflow:hidden;}
 #pk-tm-body::-webkit-scrollbar{width:4px;}
 #pk-tm-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.09);border-radius:3px;}
-.pk-tm-pane{display:none;padding:16px 18px;}
-.pk-tm-pane.pk-tm-active{display:block;}
+.pk-tm-pane{display:block;padding:16px 18px;position:absolute;inset:0;overflow-y:auto;visibility:hidden;pointer-events:none;}
+.pk-tm-pane.pk-tm-active{visibility:visible;pointer-events:auto;}
 .pk-tm-2col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 .pk-tm-box{background:#161b22;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px;margin-bottom:12px;}
 .pk-tm-box-title{font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#444;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
@@ -124,6 +124,14 @@
         s.id = 'pk-tm-css';
         s.textContent = CSS;
         document.head.appendChild(s);
+        // Load Lucide icons from CDN if not already loaded
+        if (!document.getElementById('pk-lucide-cdn')) {
+            const scr = document.createElement('script');
+            scr.id = 'pk-lucide-cdn';
+            scr.src = 'https://unpkg.com/lucide@latest/dist/umd/lucide.min.js';
+            scr.onload = () => { if (window.lucide) window.lucide.createIcons(); };
+            document.head.appendChild(scr);
+        }
         _cssInjected = true;
     }
 
@@ -223,17 +231,68 @@
         const s = document.getElementById(statId); if (s && status) s.textContent = status;
     }
 
-    function svg(paths, sz) {
+    // Lucide icon helper — returns an <i> element that lucide.createIcons() will hydrate,
+    // with a fallback inline SVG for the most-used icons so it works before CDN loads.
+    const LUCIDE_PATHS = {
+        'x':              ['M18 6L6 18','M6 6l12 12'],
+        'check':          ['M20 6L9 17l-5-5'],
+        'search':         ['M21 21l-4.35-4.35','M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z'],
+        'send':           ['M22 2L11 13','M22 2L15 22l-4-9-9-4 20-7z'],
+        'ban':            ['M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z','M12 9v4','M12 17h.01'],
+        'clock':          ['M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10z','M12 6v6l4 2'],
+        'wallet':         ['M21 12V7H5a2 2 0 0 1 0-4h14v4','M3 5v14a2 2 0 0 0 2 2h16v-5','M18 12a2 2 0 0 0 0 4h4v-4z'],
+        'bell':           ['M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9','M13.73 21a2 2 0 0 1-3.46 0'],
+        'eye':            ['M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z','M12 12m-3 0a3 3 0 1 0 6 0 3 3 0 0 0-6 0'],
+        'tag':            ['M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z','M7 7h.01'],
+        'repeat':         ['M17 2l4 4-4 4','M3 11V9a4 4 0 0 1 4-4h14','M7 22l-4-4 4-4','M21 13v2a4 4 0 0 1-4 4H3'],
+        'zap':            ['M13 2L3 14h9l-1 8 10-12h-9l1-8z'],
+        'users':          ['M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2','M23 21v-2a4 4 0 0 0-3-3.87','M16 3.13a4 4 0 0 1 0 7.75','circle cx="9" cy="7" r="4"'],
+        'package':        ['M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z','M3.27 6.96L12 12.01l8.73-5.05','M12 22.08V12'],
+        'download':       ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4','M7 10l5 5 5-5','M12 15V3'],
+        'trending-up':    ['M23 6l-9.5 9.5-5-5L1 18','M17 6h6v6'],
+        'alert-triangle': ['M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z','M12 9v4','M12 17h.01'],
+        'bar-chart-2':    ['M18 20V10','M12 20V4','M6 20v-6'],
+        'settings':       ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z','M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'],
+    };
+    function icon(name, sz) {
+        sz = sz || 14;
+        // Try to use lucide if loaded
+        if (window.lucide && window.lucide.icons && window.lucide.icons[name]) {
+            const i = document.createElement('i');
+            i.setAttribute('data-lucide', name);
+            i.style.cssText = 'width:'+sz+'px;height:'+sz+'px;flex-shrink:0;vertical-align:middle;display:inline-flex;';
+            // queue a createIcons call after the element is in the DOM
+            setTimeout(() => { try { window.lucide.createIcons({ elements: [i] }); } catch {} }, 0);
+            return i;
+        }
+        // Fallback: inline SVG
+        const paths = LUCIDE_PATHS[name] || LUCIDE_PATHS['settings'];
         const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        s.setAttribute('width', sz || '13'); s.setAttribute('height', sz || '13');
+        s.setAttribute('width', sz); s.setAttribute('height', sz);
         s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'none');
         s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '2');
         s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round');
         s.style.cssText = 'flex-shrink:0;vertical-align:middle;';
-        (Array.isArray(paths) ? paths : [paths]).forEach(d => {
-            const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            p.setAttribute('d', d); s.appendChild(p);
+        paths.forEach(d => {
+            if (d.startsWith('circle')) {
+                const attrs = d.match(/cx="([^"]+)" cy="([^"]+)" r="([^"]+)"/);
+                if (attrs) { const ci = document.createElementNS('http://www.w3.org/2000/svg','circle'); ci.setAttribute('cx',attrs[1]); ci.setAttribute('cy',attrs[2]); ci.setAttribute('r',attrs[3]); s.appendChild(ci); }
+            } else {
+                const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                p.setAttribute('d', d); s.appendChild(p);
+            }
         });
+        return s;
+    }
+    // Legacy alias for any remaining svg() calls
+    function svg(paths, sz) {
+        const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        s.setAttribute('width', sz||'13'); s.setAttribute('height', sz||'13');
+        s.setAttribute('viewBox','0 0 24 24'); s.setAttribute('fill','none');
+        s.setAttribute('stroke','currentColor'); s.setAttribute('stroke-width','2');
+        s.setAttribute('stroke-linecap','round'); s.setAttribute('stroke-linejoin','round');
+        s.style.cssText='flex-shrink:0;vertical-align:middle;';
+        (Array.isArray(paths)?paths:[paths]).forEach(d=>{const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',d);s.appendChild(p);});
         return s;
     }
     const IX = ['M18 6L6 18','M6 6l12 12'];
@@ -369,9 +428,9 @@
         const hdrL = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
         hdrL.appendChild(Span('Pekora+', { fontSize: '15px', fontWeight: '700', color: _ac }));
         hdrL.appendChild(Span('Trade Menu', { fontSize: '15px', fontWeight: '700', color: '#e6edf3', marginLeft: '2px' }));
-        hdrL.appendChild(Span('v3.1', { fontSize: '10px', color: '#484f58', marginLeft: '4px' }));
+        hdrL.appendChild(Span('v3.2', { fontSize: '10px', color: '#484f58', marginLeft: '4px' }));
         const closeBtn = El('button', { background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)', borderRadius: '6px', color: '#555', width: '27px', height: '27px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .12s' });
-        closeBtn.appendChild(svg(IX, '12'));
+        closeBtn.appendChild(icon('x', 12));
         closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = '#e6edf3'; closeBtn.style.background = 'rgba(255,255,255,.09)'; });
         closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = '#555'; closeBtn.style.background = 'rgba(255,255,255,.05)'; });
         closeBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; overlay.remove(); tgtDrop.remove(); document.getElementById('pk-tm-accent-vars')?.remove(); });
@@ -395,21 +454,33 @@
         document.addEventListener('mouseup', () => { if (dragging) { dragging = false; panel.style.transition = ''; } });
 
         // ── Tab bar ───────────────────────────────────────────────────────
-        const TABS = ['Blast','Cancel','History','Portfolio','Alerts','Lookup','Autosell'];
+        const TAB_DEFS = [
+            { id: 'blast',     label: 'Blast',     lucide: 'zap' },
+            { id: 'cancel',    label: 'Cancel',    lucide: 'ban' },
+            { id: 'history',   label: 'History',   lucide: 'clock' },
+            { id: 'portfolio', label: 'Portfolio', lucide: 'wallet' },
+            { id: 'alerts',    label: 'Alerts',    lucide: 'bell' },
+            { id: 'lookup',    label: 'Lookup',    lucide: 'eye' },
+            { id: 'autosell',  label: 'Autosell',  lucide: 'repeat' },
+        ];
         const tabBar = document.createElement('div'); tabBar.id = 'pk-tm-tabbar';
         const body = document.createElement('div'); body.id = 'pk-tm-body';
         const panes = {};
 
-        const tabBtns = TABS.map((t, i) => {
+        const tabBtns = TAB_DEFS.map((def, i) => {
             const btn = document.createElement('div');
             btn.className = 'pk-tm-tab' + (i === 0 ? ' pk-tm-active' : '');
-            btn.dataset.tab = t.toLowerCase(); btn.textContent = t;
+            btn.dataset.tab = def.id;
+            const ic = icon(def.lucide, 13);
+            ic.style.marginRight = '5px';
+            btn.appendChild(ic);
+            btn.appendChild(document.createTextNode(def.label));
             tabBar.appendChild(btn);
 
             const pane = document.createElement('div');
             pane.className = 'pk-tm-pane' + (i === 0 ? ' pk-tm-active' : '');
-            pane.id = 'pk-tm-pane-' + t.toLowerCase();
-            body.appendChild(pane); panes[t.toLowerCase()] = pane;
+            pane.id = 'pk-tm-pane-' + def.id;
+            body.appendChild(pane); panes[def.id] = pane;
             return btn;
         });
 
@@ -480,7 +551,7 @@
         offerBox.appendChild(obt);
 
         const loadInvBtn = document.createElement('button');
-        loadInvBtn.className = 'pk-tm-btn pk-tm-btn-blue pk-tm-btn-w'; loadInvBtn.textContent = 'Load Inventory';
+        loadInvBtn.className = 'pk-tm-btn pk-tm-btn-blue pk-tm-btn-w'; loadInvBtn.appendChild(icon('users', 13)); loadInvBtn.appendChild(document.createTextNode(' Load Inventory'));
         offerBox.appendChild(loadInvBtn);
 
         const invStatus = El('div', { fontSize: '10px', color: '#333', fontFamily: 'monospace', minHeight: '14px', margin: '4px 0' });
@@ -492,7 +563,7 @@
         offerBox.appendChild(offerGrid);
 
         const pickBtn = document.createElement('button');
-        pickBtn.className = 'pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm'; pickBtn.style.marginTop = '7px'; pickBtn.textContent = 'Pick Items ▾';
+        pickBtn.className = 'pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm'; pickBtn.style.marginTop = '7px'; pickBtn.appendChild(icon('package', 12)); pickBtn.appendChild(document.createTextNode(' Pick Items'));
         pickBtn.addEventListener('click', openPicker);
         offerBox.appendChild(pickBtn);
         leftCol.appendChild(offerBox);
@@ -618,7 +689,7 @@
         document.addEventListener('mousedown', e => { if (!tgtWrap.contains(e.target) && !tgtDrop.contains(e.target)) tgtDrop.style.display = 'none'; }, { capture: true });
 
         const findOwnersBtn = document.createElement('button');
-        findOwnersBtn.className = 'pk-tm-btn pk-tm-btn-blue pk-tm-btn-sm pk-tm-btn-w'; findOwnersBtn.style.marginTop = '8px'; findOwnersBtn.textContent = 'Find Owners';
+        findOwnersBtn.className = 'pk-tm-btn pk-tm-btn-blue pk-tm-btn-sm pk-tm-btn-w'; findOwnersBtn.style.marginTop = '8px'; findOwnersBtn.appendChild(icon('search', 12)); findOwnersBtn.appendChild(document.createTextNode(' Find Owners'));
         findOwnersBtn.addEventListener('click', async () => {
             if (!tgtId) { Toast('Set a target item first', 'warn'); return; }
             findOwnersBtn.disabled = true; findOwnersBtn.textContent = 'Loading...';
@@ -673,7 +744,7 @@
         blastBox.appendChild(blastLog);
 
         const brow = El('div', { display: 'flex', gap: '7px', marginTop: '4px' });
-        const sendBtn = document.createElement('button'); sendBtn.className = 'pk-tm-btn pk-tm-btn-green pk-tm-btn-w'; sendBtn.textContent = 'Send All Trades';
+        const sendBtn = document.createElement('button'); sendBtn.className = 'pk-tm-btn pk-tm-btn-green pk-tm-btn-w'; sendBtn.appendChild(icon('send', 13)); sendBtn.appendChild(document.createTextNode(' Send All Trades'));
         const stopBtn = document.createElement('button'); stopBtn.className = 'pk-tm-btn pk-tm-btn-red'; stopBtn.style.minWidth = '65px'; stopBtn.textContent = 'Stop'; stopBtn.disabled = true;
         const csvBtn  = document.createElement('button'); csvBtn.className = 'pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm'; csvBtn.textContent = 'CSV';
         brow.appendChild(sendBtn); brow.appendChild(stopBtn); brow.appendChild(csvBtn);
@@ -762,7 +833,7 @@
             const box = El('div', { background: '#0d1117', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', width: '480px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.95)' });
             const ph = El('div', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 15px', borderBottom: '1px solid rgba(255,255,255,.07)' });
             ph.appendChild(Span('Select Offer Items (max 4)', { fontSize: '13px', fontWeight: '700', color: '#e6edf3' }));
-            const pc = document.createElement('button'); pc.className = 'pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm'; pc.appendChild(svg(IX, '12')); pc.addEventListener('click', () => picker.remove()); ph.appendChild(pc); box.appendChild(ph);
+            const pc = document.createElement('button'); pc.className = 'pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm'; pc.appendChild(icon('x', 12)); pc.addEventListener('click', () => picker.remove()); ph.appendChild(pc); box.appendChild(ph);
             const si = El('input', {}); si.className = 'pk-tm-input'; si.style.cssText = 'margin:8px 12px;width:calc(100% - 24px);'; si.placeholder = 'Search items...';
             box.appendChild(si);
             const pl = El('div', { flex: '1', overflowY: 'auto', padding: '6px 8px' }); pl.style.maxHeight = 'calc(80vh - 110px)'; box.appendChild(pl);
@@ -788,7 +859,7 @@
                     const vl = El('div', {}); vl.style.cssText = 'font-size:10px;color:#444;'; vl.textContent = val > 0 ? 'Val: ' + Fmt(val) : 'No value data';
                     lft.appendChild(nm); lft.appendChild(vl); row.appendChild(lft);
                     const ck = El('div', { width: '14px', height: '14px', borderRadius: '3px', flexShrink: '0', border: '1px solid ' + (sel ? 'var(--pk-accent,#0e6fff)' : 'rgba(255,255,255,.15)'), background: sel ? 'rgba(var(--pk-accent-rgb,14,111,255),.25)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-                    if (sel) { const c2 = svg(ICHECK, '9'); c2.style.color = 'var(--pk-accent,#0e6fff)'; ck.appendChild(c2); }
+                    if (sel) { const c2 = icon('check', 9); c2.style.color = 'var(--pk-accent,#0e6fff)'; ck.appendChild(c2); }
                     row.appendChild(ck);
                     row.addEventListener('click', () => {
                         const k2 = String(i.userAssetId);
@@ -799,7 +870,7 @@
                             if (selOffer.size >= 4) { Toast('Max 4 offer items', 'warn'); return; }
                             selOffer.add(k2); row.style.background = 'rgba(var(--pk-accent-rgb,14,111,255),.08)'; row.style.border = '1px solid rgba(var(--pk-accent-rgb,14,111,255),.3)';
                             ck.innerHTML = ''; ck.style.background = 'rgba(var(--pk-accent-rgb,14,111,255),.25)'; ck.style.border = '1px solid ' + _ac;
-                            const c2 = svg(ICHECK, '9'); c2.style.color = 'var(--pk-accent,#0e6fff)'; ck.appendChild(c2);
+                            const c2 = icon('check', 9); c2.style.color = 'var(--pk-accent,#0e6fff)'; ck.appendChild(c2);
                         }
                     });
                     pl.appendChild(row);
@@ -974,10 +1045,10 @@
 <div class="pk-tm-box">
   <div class="pk-tm-box-title">Trade History</div>
   <div style="display:flex;gap:7px;margin-bottom:10px;flex-wrap:wrap;">
-    <button id="pk-tm-hist-comp" class="pk-tm-btn pk-tm-btn-green pk-tm-btn-sm">✓ Completed</button>
-    <button id="pk-tm-hist-dec"  class="pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm">✕ Declined</button>
-    <button id="pk-tm-hist-exp"  class="pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm">⏱ Expired</button>
-    <button id="pk-tm-hist-csv"  class="pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm" style="margin-left:auto;">CSV ↓</button>
+    <button id="pk-tm-hist-comp" class="pk-tm-btn pk-tm-btn-green pk-tm-btn-sm">Completed</button>
+    <button id="pk-tm-hist-dec"  class="pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm">Declined</button>
+    <button id="pk-tm-hist-exp"  class="pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm">Expired</button>
+    <button id="pk-tm-hist-csv"  class="pk-tm-btn pk-tm-btn-ghost pk-tm-btn-sm" style="margin-left:auto;">Export CSV</button>
   </div>
   <div class="pk-tm-log" id="pk-tm-hist-log" style="max-height:45px;"><span class="pk-tm-info">// Click a button to load trade history.</span></div>
   <div id="pk-tm-hist-list" style="max-height:360px;overflow-y:auto;"><div style="color:#333;font-size:11px;">No trades loaded.</div></div>
@@ -1145,7 +1216,7 @@
                 const vl = El('div', {}); vl.style.cssText = 'font-size:10px;color:#444;margin-top:2px;'; vl.textContent = 'Base: ' + (a.baseVal ? Fmt(a.baseVal) : '?') + '  ·  Alert ±' + a.pct + '%';
                 info.appendChild(nm); info.appendChild(vl);
                 const rm = El('button', { background: 'none', border: 'none', color: '#333', cursor: 'pointer', fontSize: '16px', lineHeight: '1', padding: '0 2px', transition: 'color .12s' });
-                rm.textContent = '×'; rm.addEventListener('mouseenter', () => { rm.style.color = '#f85149'; }); rm.addEventListener('mouseleave', () => { rm.style.color = '#333'; });
+                rm.appendChild(icon('x', 12)); rm.addEventListener('mouseenter', () => { rm.style.color = '#f85149'; }); rm.addEventListener('mouseleave', () => { rm.style.color = '#333'; });
                 rm.addEventListener('click', () => { PriceAlerts.splice(i, 1); saveAlerts(); renderAlerts(); });
                 row.appendChild(img); row.appendChild(info); row.appendChild(rm); l.appendChild(row);
             });
@@ -1433,6 +1504,6 @@
     }
 
     // ── expose ─────────────────────────────────────────────────────────────
-    NS.BulkTrade = { OpenPanel: BuildPanel, version: '3.1' };
+    NS.BulkTrade = { OpenPanel: BuildPanel, version: '3.2' };
 
 })();
