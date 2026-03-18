@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-bulktrade.js  —  Pekora+ Trade Menu  (v3.0)
+//  pk-bulktrade.js  —  Pekora+ Trade Menu  (v3.1)
 //  Exposes: window.PekoraPlus.BulkTrade
 //  Requires: pk-core.js, pk-toast.js
 //  Tabs: Blast · Cancel · History · Portfolio · Alerts · Lookup · Autosell
@@ -369,7 +369,7 @@
         const hdrL = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
         hdrL.appendChild(Span('Pekora+', { fontSize: '15px', fontWeight: '700', color: _ac }));
         hdrL.appendChild(Span('Trade Menu', { fontSize: '15px', fontWeight: '700', color: '#e6edf3', marginLeft: '2px' }));
-        hdrL.appendChild(Span('v3.0', { fontSize: '10px', color: '#333', marginLeft: '4px' }));
+        hdrL.appendChild(Span('v3.1', { fontSize: '10px', color: '#484f58', marginLeft: '4px' }));
         const closeBtn = El('button', { background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)', borderRadius: '6px', color: '#555', width: '27px', height: '27px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .12s' });
         closeBtn.appendChild(svg(IX, '12'));
         closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = '#e6edf3'; closeBtn.style.background = 'rgba(255,255,255,.09)'; });
@@ -1433,6 +1433,6 @@
     }
 
     // ── expose ─────────────────────────────────────────────────────────────
-    NS.BulkTrade = { OpenPanel: BuildPanel };
+    NS.BulkTrade = { OpenPanel: BuildPanel, version: '3.1' };
 
 })();
