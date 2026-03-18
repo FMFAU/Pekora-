@@ -62,7 +62,7 @@
 .pk-bt-trade-date{font-size:11px;color:#444;flex-shrink:0;}
 .pk-bt-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;flex-shrink:0;}
 .pk-bt-badge.inbound{background:rgba(56,139,253,.1);color:#58a6ff;border:1px solid rgba(56,139,253,.2);}
-.pk-bt-badge.outbound{background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2);}
+.pk-bt-badge.outbound{background:rgba(var(--pk-bt-accent-rgb),.12);color:var(--pk-bt-accent);border:1px solid rgba(var(--pk-bt-accent-rgb),.25);}
 .pk-bt-badge.completed{background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2);}
 .pk-bt-badge.declined,.pk-bt-badge.inactive{background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.2);}
 .pk-bt-badge.expired{background:rgba(227,179,65,.1);color:#e3b341;border:1px solid rgba(227,179,65,.2);}
@@ -113,13 +113,15 @@
 .pk-tdm-val-n{font-size:16px;font-weight:800;color:#e6edf3;letter-spacing:-.3px;}
 .pk-tdm-val-l{font-size:9px;color:#444;text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-top:2px;}
 .pk-tdm-footer{padding:12px 18px;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:8px;flex-shrink:0;}
-            `.replace(/var\(--pk-bt-accent\)/g, accent);
+`;
             document.head.appendChild(S);
         }
 
         // ── Build the container ──────────────────────────────────────────────
         const inner = document.createElement('div');
         inner.id = 'pk-bt-inner';
+        inner.style.setProperty('--pk-bt-accent', accent);
+        inner.style.setProperty('--pk-bt-accent-rgb', acRgb);
 
         const tabBar = document.createElement('div'); tabBar.id = 'pk-bt-tabbar';
         const body = document.createElement('div'); body.id = 'pk-bt-body';
@@ -213,6 +215,8 @@
             body.innerHTML = '<div style="padding:30px;text-align:center;color:#555;"><span class="pk-bt-spinner"></span>Loading trade details...</div>';
 
             modal.appendChild(hdr); modal.appendChild(body);
+            bg.style.setProperty('--pk-bt-accent', accent);
+            bg.style.setProperty('--pk-bt-accent-rgb', acRgb);
             bg.appendChild(modal); document.body.appendChild(bg);
 
             let trade;
