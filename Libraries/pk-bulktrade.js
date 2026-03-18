@@ -38,7 +38,7 @@
 #pk-tm-tabbar::-webkit-scrollbar{display:none;}
 .pk-tm-tab{padding:10px 14px;cursor:pointer;font-size:11px;font-weight:700;color:#444;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap;flex-shrink:0;letter-spacing:.2px;text-transform:uppercase;}
 .pk-tm-tab:hover{color:#8b949e;}
-.pk-tm-tab.pk-tm-active{color:#e6edf3;border-bottom-color:var(--primary-color,#8A5149);}
+.pk-tm-tab.pk-tm-active{color:#e6edf3;border-bottom-color:var(--pk-accent,#0e6fff);}
 #pk-tm-body{overflow-y:auto;flex:1;min-height:0;}
 #pk-tm-body::-webkit-scrollbar{width:4px;}
 #pk-tm-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.09);border-radius:3px;}
@@ -47,7 +47,7 @@
 .pk-tm-2col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 .pk-tm-box{background:#161b22;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px;margin-bottom:12px;}
 .pk-tm-box-title{font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#444;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
-.pk-tm-box-title em{color:var(--primary-color,#8A5149);font-style:normal;}
+.pk-tm-box-title em{color:var(--pk-accent,#0e6fff);font-style:normal;}
 .pk-tm-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 14px;border:none;border-radius:6px;cursor:pointer;font-family:'Source Sans Pro',sans-serif;font-size:12px;font-weight:700;transition:filter .12s,transform .1s;white-space:nowrap;}
 .pk-tm-btn:disabled{opacity:.3;cursor:not-allowed;}
 .pk-tm-btn:active:not(:disabled){transform:scale(.97);}
@@ -60,7 +60,7 @@
 .pk-tm-btn-w{width:100%;}
 .pk-tm-btn-sm{padding:5px 10px;font-size:11px;}
 .pk-tm-input{background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:7px 11px;color:#e6edf3;font-family:'Source Sans Pro',sans-serif;font-size:12px;outline:none;width:100%;transition:border-color .15s;box-sizing:border-box;}
-.pk-tm-input:focus{border-color:rgba(138,81,73,.6);}
+.pk-tm-input:focus{border-color:rgba(var(--pk-accent-rgb,14,111,255),.6);}
 .pk-tm-input::placeholder{color:#333;}
 .pk-tm-log{background:#080c10;border:1px solid rgba(255,255,255,.06);border-radius:6px;padding:8px 10px;max-height:110px;overflow-y:auto;margin-bottom:10px;font-size:10px;font-family:'SF Mono','Menlo',monospace;line-height:1.8;color:#444;}
 .pk-tm-log::-webkit-scrollbar{width:3px;}
@@ -69,7 +69,7 @@
 .pk-tm-prog-wrap{margin-bottom:10px;}
 .pk-tm-prog-bg{height:3px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;margin-bottom:5px;}
 .pk-tm-prog-fill{height:100%;border-radius:3px;width:0%;transition:width .3s ease;}
-.pk-tm-prog-fill-blue{background:linear-gradient(90deg,rgba(138,81,73,.7),rgba(138,81,73,1));}
+.pk-tm-prog-fill-blue{background:linear-gradient(90deg,rgba(var(--pk-accent-rgb,14,111,255),.7),rgba(var(--pk-accent-rgb,14,111,255),1));}
 .pk-tm-prog-fill-red{background:linear-gradient(90deg,#c0392b,#f85149);}
 .pk-tm-prog-fill-green{background:linear-gradient(90deg,#1a7f37,#3fb950);}
 .pk-tm-prog-row{display:flex;justify-content:space-between;font-size:10px;color:#444;}
@@ -78,7 +78,7 @@
 .pk-tm-step-btn:hover{background:rgba(255,255,255,.06);}
 .pk-tm-step-v{min-width:38px;text-align:center;font-size:11px;font-weight:700;color:#e6edf3;border-left:1px solid rgba(255,255,255,.07);border-right:1px solid rgba(255,255,255,.07);padding:0 4px;height:26px;line-height:26px;}
 .pk-tm-chk-row{display:flex;align-items:center;gap:8px;font-size:12px;color:#8b949e;cursor:pointer;user-select:none;padding:4px 0;}
-.pk-tm-chk-row input[type=checkbox]{accent-color:var(--primary-color,#8A5149);width:13px;height:13px;cursor:pointer;}
+.pk-tm-chk-row input[type=checkbox]{accent-color:var(--pk-accent,#0e6fff);width:13px;height:13px;cursor:pointer;}
 .pk-tm-trade-row{display:flex;align-items:center;gap:8px;background:#0d1117;border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:8px 11px;cursor:pointer;margin-bottom:4px;transition:border-color .12s;}
 .pk-tm-trade-row:hover{border-color:rgba(255,255,255,.1);}
 .pk-tm-trade-row.pk-tm-sel-r{border-color:rgba(248,81,73,.35);background:rgba(248,81,73,.06);}
@@ -90,7 +90,7 @@
 .pk-tm-port-row:hover{border-color:rgba(255,255,255,.1);}
 .pk-tm-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
 .pk-tm-stat{background:#0d1117;border:1px solid rgba(255,255,255,.06);border-radius:9px;padding:13px;text-align:center;}
-.pk-tm-stat-v{font-size:22px;font-weight:800;color:var(--primary-color,#8A5149);letter-spacing:-.5px;}
+.pk-tm-stat-v{font-size:22px;font-weight:800;color:var(--pk-accent,#0e6fff);letter-spacing:-.5px;}
 .pk-tm-stat-l{font-size:9px;color:#444;margin-top:3px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;}
 .pk-tm-ratio-bar{display:flex;background:rgba(255,255,255,.02);border-radius:7px;overflow:hidden;border:1px solid rgba(255,255,255,.06);margin-bottom:12px;}
 .pk-tm-ratio-cell{display:flex;flex-direction:column;align-items:center;flex:1;padding:8px 10px;border-right:1px solid rgba(255,255,255,.05);}
@@ -109,8 +109,8 @@
 .pk-tm-alert-row{background:#0d1117;border:1px solid rgba(255,255,255,.06);border-radius:9px;padding:10px 12px;display:flex;align-items:center;gap:9px;margin-bottom:5px;}
 .pk-tm-inv-item{display:flex;align-items:center;gap:9px;background:#0d1117;border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:9px 11px;cursor:pointer;transition:all .12s;margin-bottom:4px;}
 .pk-tm-inv-item:hover{border-color:rgba(255,255,255,.1);}
-.pk-tm-inv-item.pk-tm-sel-i{border-color:var(--primary-color,#8A5149);background:rgba(138,81,73,.08);}
-.pk-tm-offer-chip{display:inline-flex;align-items:center;gap:4px;background:rgba(138,81,73,.12);border:1px solid rgba(138,81,73,.22);border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer;}
+.pk-tm-inv-item.pk-tm-sel-i{border-color:var(--pk-accent,#0e6fff);background:rgba(var(--pk-accent-rgb,14,111,255),.08);}
+.pk-tm-offer-chip{display:inline-flex;align-items:center;gap:4px;background:rgba(var(--pk-accent-rgb,14,111,255),.12);border:1px solid rgba(var(--pk-accent-rgb,14,111,255),.22);border-radius:5px;padding:3px 8px;font-size:10px;cursor:pointer;}
 .pk-tm-drop-row:hover{background:rgba(255,255,255,.05);}
 #pk-tm-tgt-drop{position:fixed;z-index:2000001;background:#161b22;border:1px solid rgba(255,255,255,.12);border-radius:8px;max-height:240px;overflow-y:auto;display:none;box-shadow:0 12px 32px rgba(0,0,0,.9);}
 #pk-tm-tgt-drop::-webkit-scrollbar{width:3px;}
@@ -328,11 +328,30 @@
     // ══════════════════════════════════════════════════════════════════════
     //  BUILD PANEL
     // ══════════════════════════════════════════════════════════════════════
-    function BuildPanel() {
+    function BuildPanel(accentColour) {
         const existing = document.getElementById('pk-tm-overlay');
         if (existing) { existing.remove(); document.getElementById('pk-tm-tgt-drop')?.remove(); return; }
 
         injectCSS();
+
+        // Inject accent colour as CSS variable so all CSS rules pick it up
+        const _ac = accentColour || '#0e6fff';
+        const _acRgb = (function() {
+            // parse rgb(r,g,b) or #hex into r,g,b for rgba() usage
+            const m = _ac.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+            if (m) return m[1] + ',' + m[2] + ',' + m[3];
+            const h = _ac.replace('#','');
+            if (h.length === 6) {
+                const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+                return r + ',' + g + ',' + b;
+            }
+            return '14,111,255';
+        })();
+        const accentStyleEl = document.createElement('style');
+        accentStyleEl.id = 'pk-tm-accent-vars';
+        document.getElementById('pk-tm-accent-vars')?.remove();
+        accentStyleEl.textContent = ':root{--pk-accent:' + _ac + ';--pk-accent-rgb:' + _acRgb + ';}';
+        document.head.appendChild(accentStyleEl);
 
         // portalled dropdown
         const tgtDrop = document.createElement('div');
@@ -348,16 +367,14 @@
         // ── Header ────────────────────────────────────────────────────────
         const hdr = El('div', {}); hdr.id = 'pk-tm-header';
         const hdrL = El('div', { display: 'flex', alignItems: 'center', gap: '10px' });
-        const logo = El('div', { padding: '2px 7px', background: 'rgba(138,81,73,.15)', borderRadius: '4px', border: '1px solid rgba(138,81,73,.25)' });
-        logo.appendChild(Span('Pekora+', { fontSize: '10px', fontWeight: '700', color: 'var(--primary-color,#8A5149)' }));
-        hdrL.appendChild(logo);
-        hdrL.appendChild(Span('Trade Menu', { fontSize: '15px', fontWeight: '700', color: '#e6edf3', marginLeft: '8px' }));
+        hdrL.appendChild(Span('Pekora+', { fontSize: '15px', fontWeight: '700', color: _ac }));
+        hdrL.appendChild(Span('Trade Menu', { fontSize: '15px', fontWeight: '700', color: '#e6edf3', marginLeft: '2px' }));
         hdrL.appendChild(Span('v3.0', { fontSize: '10px', color: '#333', marginLeft: '4px' }));
         const closeBtn = El('button', { background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)', borderRadius: '6px', color: '#555', width: '27px', height: '27px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .12s' });
         closeBtn.appendChild(svg(IX, '12'));
         closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = '#e6edf3'; closeBtn.style.background = 'rgba(255,255,255,.09)'; });
         closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = '#555'; closeBtn.style.background = 'rgba(255,255,255,.05)'; });
-        closeBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; overlay.remove(); tgtDrop.remove(); });
+        closeBtn.addEventListener('click', () => { BT_Abort = true; CancelAbort = true; overlay.remove(); tgtDrop.remove(); document.getElementById('pk-tm-accent-vars')?.remove(); });
         hdr.appendChild(hdrL); hdr.appendChild(closeBtn);
 
         // drag
@@ -729,7 +746,7 @@
                     const chip = El('div', {}); chip.className = 'pk-tm-offer-chip'; chip.title = 'Click to remove';
                     const nm = El('span', {}); nm.style.cssText = 'color:#e6edf3;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;'; nm.textContent = item.name || item.assetName || ('Item ' + item.assetId);
                     chip.appendChild(nm);
-                    if (val > 0) chip.appendChild(Span(' · ' + Fmt(val), { color: 'var(--primary-color,#8A5149)', fontWeight: '700', fontSize: '10px' }));
+                    if (val > 0) chip.appendChild(Span(' · ' + Fmt(val), { color: 'var(--pk-accent,#0e6fff)', fontWeight: '700', fontSize: '10px' }));
                     chip.appendChild(Span(' ×', { color: '#555', marginLeft: '2px', fontSize: '10px' }));
                     chip.addEventListener('click', () => { selOffer.delete(String(uaid)); refreshOfferGrid(); calcRatio(); });
                     offerGrid.appendChild(chip);
@@ -763,15 +780,15 @@
                 fil.forEach(i => {
                     const k = kmap[String(i.assetId)] || {}, val = k.Value || k.value || k.RAP || k.rap || 0;
                     const sel = selOffer.has(String(i.userAssetId));
-                    const row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none', marginBottom: '2px', border: '1px solid ' + (sel ? 'rgba(138,81,73,.3)' : 'transparent'), background: sel ? 'rgba(138,81,73,.08)' : 'transparent' });
+                    const row = El('div', { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '5px', cursor: 'pointer', userSelect: 'none', marginBottom: '2px', border: '1px solid ' + (sel ? 'rgba(var(--pk-accent-rgb,14,111,255),.3)' : 'transparent'), background: sel ? 'rgba(var(--pk-accent-rgb,14,111,255),.08)' : 'transparent' });
                     row.className = 'pk-tm-drop-row';
                     const img = document.createElement('img'); img.src = thumb(i.assetId); img.style.cssText = 'width:32px;height:32px;border-radius:5px;background:#161b22;object-fit:cover;flex-shrink:0;'; img.onerror = () => { img.style.display='none'; }; row.appendChild(img);
                     const lft = El('div', { flex: '1', overflow: 'hidden' });
                     const nm = El('div', {}); nm.style.cssText = 'color:#e6edf3;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'; nm.textContent = i.name || i.assetName || ('Item ' + i.assetId);
                     const vl = El('div', {}); vl.style.cssText = 'font-size:10px;color:#444;'; vl.textContent = val > 0 ? 'Val: ' + Fmt(val) : 'No value data';
                     lft.appendChild(nm); lft.appendChild(vl); row.appendChild(lft);
-                    const ck = El('div', { width: '14px', height: '14px', borderRadius: '3px', flexShrink: '0', border: '1px solid ' + (sel ? '#8A5149' : 'rgba(255,255,255,.15)'), background: sel ? 'rgba(138,81,73,.25)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-                    if (sel) { const c2 = svg(ICHECK, '9'); c2.style.color = '#8A5149'; ck.appendChild(c2); }
+                    const ck = El('div', { width: '14px', height: '14px', borderRadius: '3px', flexShrink: '0', border: '1px solid ' + (sel ? 'var(--pk-accent,#0e6fff)' : 'rgba(255,255,255,.15)'), background: sel ? 'rgba(var(--pk-accent-rgb,14,111,255),.25)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+                    if (sel) { const c2 = svg(ICHECK, '9'); c2.style.color = 'var(--pk-accent,#0e6fff)'; ck.appendChild(c2); }
                     row.appendChild(ck);
                     row.addEventListener('click', () => {
                         const k2 = String(i.userAssetId);
@@ -780,9 +797,9 @@
                             ck.innerHTML = ''; ck.style.background = 'transparent'; ck.style.border = '1px solid rgba(255,255,255,.15)';
                         } else {
                             if (selOffer.size >= 4) { Toast('Max 4 offer items', 'warn'); return; }
-                            selOffer.add(k2); row.style.background = 'rgba(138,81,73,.08)'; row.style.border = '1px solid rgba(138,81,73,.3)';
-                            ck.innerHTML = ''; ck.style.background = 'rgba(138,81,73,.25)'; ck.style.border = '1px solid #8A5149';
-                            const c2 = svg(ICHECK, '9'); c2.style.color = '#8A5149'; ck.appendChild(c2);
+                            selOffer.add(k2); row.style.background = 'rgba(var(--pk-accent-rgb,14,111,255),.08)'; row.style.border = '1px solid rgba(var(--pk-accent-rgb,14,111,255),.3)';
+                            ck.innerHTML = ''; ck.style.background = 'rgba(var(--pk-accent-rgb,14,111,255),.25)'; ck.style.border = '1px solid ' + _ac;
+                            const c2 = svg(ICHECK, '9'); c2.style.color = 'var(--pk-accent,#0e6fff)'; ck.appendChild(c2);
                         }
                     });
                     pl.appendChild(row);
@@ -1072,7 +1089,7 @@
                 const row = El('div', {}); row.className = 'pk-tm-port-row';
                 const img = document.createElement('img'); img.src = thumb(r.id); img.style.cssText = 'width:34px;height:34px;border-radius:6px;background:#161b22;object-fit:cover;flex-shrink:0;';
                 const nm = El('div', { flex: '1', fontSize: '11px', fontWeight: '700', color: '#e6edf3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }); nm.textContent = r.name;
-                const vl = El('span', {}); vl.style.cssText = 'font-size:10px;color:var(--primary-color,#8A5149);font-weight:700;flex-shrink:0;'; vl.textContent = r.val ? Fmt(r.val) : '—';
+                const vl = El('span', {}); vl.style.cssText = 'font-size:10px;color:var(--pk-accent,#0e6fff);font-weight:700;flex-shrink:0;'; vl.textContent = r.val ? Fmt(r.val) : '—';
                 const rp = El('span', {}); rp.style.cssText = 'font-size:10px;color:#444;flex-shrink:0;margin-left:6px;'; rp.textContent = 'RAP ' + (r.rap ? Fmt(r.rap) : '—');
                 row.appendChild(img); row.appendChild(nm); row.appendChild(vl); row.appendChild(rp); list.appendChild(row);
             });
