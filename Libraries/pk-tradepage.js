@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-//  pk-tradepage.js  —  Pekora+ Better Trades Page  (v1.1)
+//  pk-tradepage.js  —  Pekora+ Better Trades Page  (v1.2)
 //  Requires: pk-core.js (El, Span, Fmt, Toast), GM_xmlhttpRequest
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
@@ -19,7 +19,8 @@
         if (moneyContainer.querySelector('#pk-bt-inner')) return;
 
         const { El, Span, Fmt } = NS;
-        const accent = NS.GetSiteAccent ? NS.GetSiteAccent() : '#0e6fff';
+        // Always pull from GetSiteAccent — never hardcode a fallback colour here
+        const accent = NS.GetSiteAccent ? NS.GetSiteAccent() : 'rgb(14,111,255)';
         const acRgb = (function () {
             const m = accent.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
             if (m) return m[1] + ',' + m[2] + ',' + m[3];
@@ -113,6 +114,12 @@
 .pk-tdm-val-n{font-size:16px;font-weight:800;color:#e6edf3;letter-spacing:-.3px;}
 .pk-tdm-val-l{font-size:9px;color:#444;text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-top:2px;}
 .pk-tdm-footer{padding:12px 18px;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:8px;flex-shrink:0;}
+.pk-tdm-btn-accept{flex:1;padding:9px;background:#238636;border:1px solid #2ea043;border-radius:7px;color:#fff;font-family:'Source Sans Pro',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:filter .12s;}
+.pk-tdm-btn-accept:hover{filter:brightness(1.15);}
+.pk-tdm-btn-accept:disabled{opacity:.5;cursor:not-allowed;filter:none;}
+.pk-tdm-btn-decline{flex:1;padding:9px;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);border-radius:7px;color:#f85149;font-family:'Source Sans Pro',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:filter .12s;}
+.pk-tdm-btn-decline:hover{filter:brightness(1.15);}
+.pk-tdm-btn-decline:disabled{opacity:.5;cursor:not-allowed;filter:none;}
 `;
             document.head.appendChild(S);
         }
@@ -186,6 +193,18 @@
             });
         }
 
+        function pkPost(url, body) {
+            return new Promise((res, rej) => {
+                GM_xmlhttpRequest({
+                    method: 'POST', url, withCredentials: true,
+                    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    data: body ? JSON.stringify(body) : '',
+                    onload: r => { try { res(JSON.parse(r.responseText)); } catch(e) { res({}); } },
+                    onerror: () => rej(new Error('Network error')), ontimeout: () => rej(new Error('Timeout'))
+                });
+            });
+        }
+
         function spinner(msg) {
             const d = document.createElement('div');
             d.style.cssText = 'padding:24px;text-align:center;color:#555;font-size:12px;';
@@ -193,9 +212,24 @@
             return d;
         }
 
+        // ── Value calculation — prefer Value over RAP (same logic as main script) ──
+        function calcVal(assets) {
+            const kmap = window.PekoraPlus?.KCache || {};
+            return (assets||[]).reduce((s, a) => {
+                const k = kmap[String(a.assetId)];
+                if (k) {
+                    const val = k.Value || k.value || 0;
+                    const rap  = k.RAP   || k.rap   || 0;
+                    // Use Value if it exists, otherwise fall back to RAP
+                    return s + (val > 0 ? val : rap);
+                }
+                return s + (a.recentAveragePrice || 0);
+            }, 0);
+        }
+
         // ── Trade row renderer ───────────────────────────────────────────────
         // ── Trade detail modal ──────────────────────────────────────────────
-        async function openTradeModal(tradeId) {
+        async function openTradeModal(tradeId, tradeType) {
             // Remove existing modal
             document.getElementById('pk-trade-modal-bg')?.remove();
 
@@ -211,10 +245,10 @@
             hdr.appendChild(title); hdr.appendChild(closeBtn);
 
             // Body with spinner
-            const body = document.createElement('div'); body.className = 'pk-tdm-body';
-            body.innerHTML = '<div style="padding:30px;text-align:center;color:#555;"><span class="pk-bt-spinner"></span>Loading trade details...</div>';
+            const modalBody = document.createElement('div'); modalBody.className = 'pk-tdm-body';
+            modalBody.innerHTML = '<div style="padding:30px;text-align:center;color:#555;"><span class="pk-bt-spinner"></span>Loading trade details...</div>';
 
-            modal.appendChild(hdr); modal.appendChild(body);
+            modal.appendChild(hdr); modal.appendChild(modalBody);
             bg.style.setProperty('--pk-bt-accent', accent);
             bg.style.setProperty('--pk-bt-accent-rgb', acRgb);
             bg.appendChild(modal); document.body.appendChild(bg);
@@ -223,11 +257,11 @@
             try {
                 trade = await pkFetch('https://www.pekora.zip/apisite/trades/v1/trades/' + tradeId);
             } catch(e) {
-                body.innerHTML = '<div style="padding:24px;color:#f85149;font-size:13px;">Failed to load trade: ' + e.message + '</div>';
+                modalBody.innerHTML = '<div style="padding:24px;color:#f85149;font-size:13px;">Failed to load trade: ' + e.message + '</div>';
                 return;
             }
 
-            body.innerHTML = '';
+            modalBody.innerHTML = '';
 
             // Get my uid to split offers correctly
             let myUid = null;
@@ -236,15 +270,6 @@
             const offers = trade.offers || [];
             let myOffer = offers.find(o => myUid && String(o.user?.id) === myUid) || offers[0];
             let theirOffer = offers.find(o => !myUid || String(o.user?.id) !== myUid) || offers[1];
-
-            const kmap = window.PekoraPlus?.KCache || {};
-
-            function calcVal(assets) {
-                return (assets||[]).reduce((s, a) => {
-                    const k = kmap[String(a.assetId)];
-                    return s + (k ? (k.Value||k.value||k.RAP||k.rap||0) : (a.recentAveragePrice||0));
-                }, 0);
-            }
 
             const myVal    = calcVal(myOffer?.userAssets);
             const theirVal = calcVal(theirOffer?.userAssets);
@@ -269,7 +294,7 @@
                 d.innerHTML = '<b>Expires:</b> ' + new Date(trade.expiration).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
                 metaRow.appendChild(d);
             }
-            body.appendChild(metaRow);
+            modalBody.appendChild(metaRow);
 
             // Value summary bar
             const valRow = document.createElement('div'); valRow.className = 'pk-tdm-val-row';
@@ -283,7 +308,7 @@
             valRow.appendChild(valCell('You Get', theirVal));
             valRow.appendChild(valCell(diff >= 0 ? 'Gain' : 'Loss', Math.abs(diff), diffCol));
             valRow.appendChild(valCell('Ratio', ratio.replace('x',''), diff >= 0 ? '#3fb950' : '#f85149'));
-            body.appendChild(valRow);
+            modalBody.appendChild(valRow);
 
             // Items renderer
             function renderSide(label, offer, isMe) {
@@ -299,9 +324,11 @@
                     const empty = document.createElement('div'); empty.style.cssText='font-size:11px;color:#333;'; empty.textContent='No items';
                     items.appendChild(empty);
                 } else {
+                    const kmap = window.PekoraPlus?.KCache || {};
                     assets.forEach(a => {
                         const k = kmap[String(a.assetId)] || {};
-                        const val = k.Value||k.value||k.RAP||k.rap||a.recentAveragePrice||0;
+                        // Show Value if available, else fall back to RAP
+                        const val = (k.Value||k.value||0) > 0 ? (k.Value||k.value) : (k.RAP||k.rap||a.recentAveragePrice||0);
                         const item = document.createElement('div'); item.className = 'pk-tdm-item';
                         const img = document.createElement('img');
                         img.src = 'https://www.pekora.zip/Thumbs/Asset.ashx?width=150&height=150&assetId=' + a.assetId;
@@ -314,16 +341,60 @@
                     });
                 }
                 side.appendChild(items);
-                body.appendChild(side);
+                modalBody.appendChild(side);
             }
 
             renderSide('Your offer', myOffer, true);
-            const div = document.createElement('div'); div.className = 'pk-tdm-divider'; body.appendChild(div);
+            const div = document.createElement('div'); div.className = 'pk-tdm-divider'; modalBody.appendChild(div);
             renderSide('Their offer', theirOffer, false);
 
             // Update modal title
             const partner = theirOffer?.user?.name || 'Unknown';
             title.textContent = 'Trade with ' + partner + ' #' + tradeId;
+
+            // ── Footer — Accept / Decline only for active inbound trades ────
+            const isInbound = tradeType === 'inbound';
+            const isActive  = trade.status === 'Active';
+
+            if (isInbound && isActive) {
+                const footer = document.createElement('div'); footer.className = 'pk-tdm-footer';
+
+                const acceptBtn = document.createElement('button'); acceptBtn.className = 'pk-tdm-btn-accept'; acceptBtn.textContent = 'Accept Trade';
+                const declineBtn = document.createElement('button'); declineBtn.className = 'pk-tdm-btn-decline'; declineBtn.textContent = 'Decline';
+
+                acceptBtn.addEventListener('click', async () => {
+                    acceptBtn.disabled = true; declineBtn.disabled = true;
+                    acceptBtn.textContent = 'Accepting...';
+                    try {
+                        await pkPost('https://www.pekora.zip/apisite/trades/v1/trades/' + tradeId + '/accept');
+                        acceptBtn.textContent = 'Accepted!';
+                        acceptBtn.style.background = '#1a3d26';
+                        statusEl.textContent = 'Completed';
+                        statusEl.className = 'pk-bt-badge completed';
+                    } catch(e) {
+                        acceptBtn.textContent = 'Failed';
+                        acceptBtn.disabled = false; declineBtn.disabled = false;
+                    }
+                });
+
+                declineBtn.addEventListener('click', async () => {
+                    acceptBtn.disabled = true; declineBtn.disabled = true;
+                    declineBtn.textContent = 'Declining...';
+                    try {
+                        await pkPost('https://www.pekora.zip/apisite/trades/v1/trades/' + tradeId + '/decline');
+                        declineBtn.textContent = 'Declined';
+                        declineBtn.style.background = 'rgba(248,81,73,.25)';
+                        statusEl.textContent = 'Declined';
+                        statusEl.className = 'pk-bt-badge declined';
+                    } catch(e) {
+                        declineBtn.textContent = 'Failed';
+                        acceptBtn.disabled = false; declineBtn.disabled = false;
+                    }
+                });
+
+                footer.appendChild(acceptBtn); footer.appendChild(declineBtn);
+                modal.appendChild(footer);
+            }
         }
 
         function tradeRow(trade, type) {
@@ -345,7 +416,8 @@
             const idEl = document.createElement('div'); idEl.className='pk-bt-trade-date'; idEl.textContent='#'+trade.id;
 
             row.appendChild(img); row.appendChild(info); row.appendChild(badge); row.appendChild(idEl);
-            row.addEventListener('click', () => openTradeModal(trade.id));
+            // Pass the trade type through so the modal knows whether to show Accept/Decline
+            row.addEventListener('click', () => openTradeModal(trade.id, type));
             return row;
         }
 
@@ -546,7 +618,7 @@
         loadTab('inbound');
     }
 
-    NS.TradePage = { Render: RenderBetterTradesPage, version: '1.1' };
+    NS.TradePage = { Render: RenderBetterTradesPage, version: '1.2' };
     // Also expose GetSiteAccent if not already on NS (for use above)
-    if (!NS.GetSiteAccent) NS.GetSiteAccent = function() { return '#0e6fff'; };
+    if (!NS.GetSiteAccent) NS.GetSiteAccent = function() { return 'rgb(14,111,255)'; };
 })();
